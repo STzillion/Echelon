@@ -1,50 +1,38 @@
-# Welcome to your Expo app 👋
+Echelon is a debate-driven social app where users can post opinions, challenge others to debates, and earn credibility through community voting. The app blends fast-paced discussion with structured rules to make debating engaging, competitive, and fair.
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+✨ Features
 
-## Get started
+📝 Post Opinions – Share your thoughts in short, tweet-style posts.
 
-1. Install dependencies
+⚔️ Private Debates – Challenge or accept debates; once accepted, only the two debaters can contribute.
 
-   ```bash
-   npm install
-   ```
+👀 Spectator Mode – Others can view debates and comment but can’t join mid-debate.
 
-2. Start the app
+🔄 Segmented Rounds – Debates are capped at 10 segments to keep discussions concise.
 
-   ```bash
-   npx expo start
-   ```
+🗳 Voting System – Spectators vote for the winner.
 
-In the output, you'll find options to open the app in a
+🎖 Credibility Points – Winners earn credibility, which increases their voting weight in future debates.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+🎭 User Roles (Future) – Expand roles to sponsors and other community-driven types.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+🛠 Tech Stack
 
-## Get a fresh project
+Frontend: React Native (Expo Router)
 
-When you're ready, run:
+Backend: Supabase (Auth, Database, Real-time)
 
-```bash
-npm run reset-project
-```
+UI/UX: Custom animated interactions, polished navigation, glassmorphism effects
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Auth: Supabase + Google OAuth
 
-## Learn more
+Data: Real-time sync between client and server
 
-To learn more about developing your project with Expo, look at the following resources:
+🚀 Getting Started
+Prerequisites
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Node.js (v18+)
 
-## Join the community
+Expo CLI (npm install -g expo-cli)
 
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Supabase project with configured database
