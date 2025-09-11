@@ -1,24 +1,71 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-import Ionicons from '@expo/vector-icons/build/Ionicons';
+import {Home,Plus,User,Scale, BookOpen,} from 'lucide-react-native'
+import {useSafeRouter as useRouter} from '@/lib/fixExpoRouterBug';
 
 export default function TabLayout() {
+  const router = useRouter();
   return (
     <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: '#0a7ea4',
-        headerShown: false,
-      }}>
+     screenOptions={{
+     tabBarActiveTintColor: 'cyan',         // your logo's primary color
+     tabBarInactiveTintColor: 'white',       // make all icons match
+     tabBarStyle: 
+     {
+       backgroundColor: '#000',                // matches your app's black background
+       borderTopColor: '#111',                 // subtle top border (optional)
+     },
+      headerShown: false,
+    }}>
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons name= {focused ?'home': 'home-outline'} color={color} size = {24} />
+          title: '',
+          tabBarIcon: ({ color, focused }) => (<Home color={color} size = {30} />
+          ),
+        }}
+      />
+        <Tabs.Screen
+        name="topics"
+        options={{
+            title: '',
+          tabBarIcon: ({ color, focused }) => (<BookOpen color={color} size = {30} />
+          ),
+        }}
+      />
+       <Tabs.Screen
+        name="empty"
+        options={{
+            title: '',
+          tabBarIcon: ({ color, focused }) => (<Plus color={color} size = {30} />
+          ),
+        }}
+        listeners={{
+          tabPress: (e) => {
+            e.preventDefault();
+            router.push('/post');
+
+          },
+        }}
+      />
+        <Tabs.Screen
+        name="debates"
+        options={{
+            title: '',
+          tabBarIcon: ({ color, focused }) => (<Scale color={color} size = {32} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+            title: '',
+          tabBarIcon: ({ color, focused }) => (<User color={color} size = {30} />
           ),
         }}
       />
     </Tabs>
+    
   );
 }
 

@@ -1,0 +1,32 @@
+diff --git a/node_modules/expo-router/build/fork/useLinking.js b/node_modules/expo-router/build/fork/useLinking.js
+index 8ff20b7..ca5ce10 100644
+--- a/node_modules/expo-router/build/fork/useLinking.js
++++ b/node_modules/expo-router/build/fork/useLinking.js
+@@ -133,17 +133,16 @@ function useLinking(ref, { enabled = true, config, getStateFromPath = native_1.g
+         getPathFromStateRef.current = getPathFromState;
+         getActionFromStateRef.current = getActionFromState;
+     });
+-    const validateRoutesNotExistInRootState = React.useCallback((state) => {
+-        // START FORK
+-        // Instead of using the rootState (which might be stale) we should use the focused state
+-        // const navigation = ref.current;
+-        // const rootState = navigation?.getRootState();
+-        const rootState = store.state;
+-        // END FORK
+-        // Make sure that the routes in the state exist in the root navigator
+-        // Otherwise there's an error in the linking configuration
+-        return state?.routes.some((r) => !rootState?.routeNames.includes(r.name));
+-    }, [ref]);
++   const validateRoutesNotExistInRootState = React.useCallback((state) => {
++  const rootState = store.state;
++
++  if (!rootState?.routeNames || !Array.isArray(state?.routes)) {
++    return false;
++  }
++
++  return state.routes.some((r) => !rootState.routeNames.includes(r.name));
++}, [ref]);
++
+     const server = React.use(serverLocationContext_1.ServerContext);
+     const getInitialState = React.useCallback(() => {
+         let value;
