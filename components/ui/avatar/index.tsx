@@ -136,7 +136,9 @@ const AvatarFallbackText = React.forwardRef<
         size,
         class: className,
       })}
-    />
+    >
+      {typeof props.children === 'string' ? <Text>{props.children}</Text> : props.children}
+    </UIAvatar.FallbackText>
   );
 });
 

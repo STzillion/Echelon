@@ -21,7 +21,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: '',
-          tabBarIcon: ({ color, focused }) => (<Home color={color} size = {30} />
+          tabBarIcon: ({ color, focused }) => (<Home color={color} size = {28} />
           ),
         }}
       />
@@ -29,7 +29,7 @@ export default function TabLayout() {
         name="topics"
         options={{
             title: '',
-          tabBarIcon: ({ color, focused }) => (<BookOpen color={color} size = {30} />
+          tabBarIcon: ({ color, focused }) => (<BookOpen color={color} size = {28} />
           ),
         }}
       />
@@ -37,7 +37,7 @@ export default function TabLayout() {
         name="empty"
         options={{
             title: '',
-          tabBarIcon: ({ color, focused }) => (<Plus color={color} size = {30} />
+          tabBarIcon: ({ color, focused }) => (<Plus color={color} size = {31} />
           ),
         }}
         listeners={{
@@ -52,7 +52,7 @@ export default function TabLayout() {
         name="debates"
         options={{
             title: '',
-          tabBarIcon: ({ color, focused }) => (<Scale color={color} size = {32} />
+          tabBarIcon: ({ color, focused }) => (<Scale color={color} size = {30} />
           ),
         }}
       />
@@ -60,7 +60,7 @@ export default function TabLayout() {
         name="profile"
         options={{
             title: '',
-          tabBarIcon: ({ color, focused }) => (<User color={color} size = {30} />
+          tabBarIcon: ({ color, focused }) => (<User color={color} size = {28} />
           ),
         }}
       />
