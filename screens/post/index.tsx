@@ -1,9 +1,16 @@
 import React, { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { View, StyleSheet, Keyboard, KeyboardAvoidingView, Platform, TouchableWithoutFeedback } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  TouchableWithoutFeedback,
+  Image as RNImage,
+} from 'react-native';
 import { Text } from '@/components/ui/text';
 import { useAuth } from '@/providers/AuthProvider';
-import { Card } from '@/components/ui/card';
 import { Avatar, AvatarImage } from '@/components/ui/avatar';
 import { HStack } from '@/components/ui/hstack';
 import { VStack } from '@/components/ui/vstack';
@@ -13,38 +20,124 @@ import { Images, Camera, Mic, VideoIcon, Hash } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { router } from 'expo-router';
 import * as Crypto from 'expo-crypto';
-import { usePosts } from '@/providers/PostsProvider';
+import { usedPosts } from '@/providers/PostsProvider';
+import { Pressable } from '@/components/ui/pressable';
+import * as ImagePicker from 'expo-image-picker';
 
 export default function PostScreen() {
   const { user } = useAuth();
-  const { addPost } = usePosts();
+  const { addPost } = usedPosts();
+
   const [text, setText] = useState('');
-  const isDisabled = !text.trim();
+  const [photo, setPhoto] = useState<string>('');          
+  const [fileName, setFileName] = useState<string | null>(null); 
+  const [isUploading, setIsUploading] = useState(false);
+
+  const isDisabled = !text.trim() && !photo; 
+
+  // Upload file to Supabase 
+  const uploadFile = async (uri: string, type: string | null, name: string) => {
+    try {
+      setIsUploading(true);
+
+      
+      const res = await fetch(uri);
+      const arrayBuffer = await res.arrayBuffer();
+
+      
+      const { data, error } = await supabase.storage
+        .from('files') // bucket name
+        .upload(`${(user as any).id}/${name}`, arrayBuffer, {
+          contentType: type ?? 'image/jpeg',
+          upsert: true,
+        });
+
+      console.log('Upload result:', data, error);
+      if (error) throw error;
+
+      return name; // return fileName
+    } catch (err) {
+      console.error('Upload failed:', err);
+      return null;
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const addphoto = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 1,
+    });
+
+    if (!result.canceled && result.assets?.[0]?.uri) {
+      const uri = result.assets[0].uri;
+      const type = result.assets[0].mimeType ?? 'image/jpeg';
+      setPhoto(uri);
+
+      
+      const generatedName = `${Date.now()}.jpg`;
+      const uploadedName = await uploadFile(uri, type, generatedName);
+
+      if (uploadedName) {
+        setFileName(uploadedName);
+      } else {
+       
+        setPhoto('');
+        setFileName(null);
+      }
+    }
+  };
 
   const onPress = async () => {
     if (!user) return;
-    const { data, error } = await supabase
-      .from('Post')
-      .insert({
-        id: Crypto.randomUUID(),
-        user_id: (user as any)?.id,
-        text,
-      })
-      .select();
-    if (!error && data && data[0]) {
-      // Fetch user info for the new post
-      const { data: userData, error: userError } = await supabase
-        .from('User')
-        .select('id, username, avatar')
-        .eq('id', (user as any)?.id)
-        .single();
-      // Attach user info to post
-      const postWithUser = {
-        ...data[0],
-        user: userData || { id: (user as any)?.id, username: (user as any)?.username, avatar: (user as any)?.avatar },
-      };
-      addPost(postWithUser);
-      router.back();
+
+    try {
+      const { data, error } = await supabase
+        .from('Post')
+        .insert({
+          id: Crypto.randomUUID(),
+          user_id: (user as any)?.id,
+          text,
+          file: fileName, // setting just the filename to the table. I previously had a bug here with the full path
+        })
+        .select();
+
+      if (error) {
+        console.error('Post insert error:', error);
+        return;
+      }
+
+      if (data && data[0]) {
+        // Fetch user info for the new post
+        const { data: userData, error: userError } = await supabase
+          .from('User')
+          .select('id, username, avatar')
+          .eq('id', (user as any)?.id)
+          .single();
+
+        if (userError) {
+          console.log('User fetch error:', userError);
+        }
+
+        
+        const postWithUser = {
+          ...data[0],
+          user:
+            userData || {
+              id: (user as any)?.id,
+              username: (user as any)?.username,
+              avatar: (user as any)?.avatar,
+            },
+        };
+
+        addPost(postWithUser);
+        router.back();
+      }
+    } catch (err) {
+      console.error('onPress error:', err);
     }
   };
 
@@ -61,7 +154,12 @@ export default function PostScreen() {
           <VStack style={{ flex: 1, justifyContent: 'space-between' }}>
             {/* Header */}
             <HStack style={styles.headerRow}>
-              <Button onPress={() => router.back()} size="md" variant="link" style={styles.cancelButton}>
+              <Button
+                onPress={() => router.back()}
+                size="md"
+                variant="link"
+                style={styles.cancelButton}
+              >
                 <ButtonText style={styles.cancelText}>Cancel</ButtonText>
               </Button>
               <Text style={styles.headerTitle}>New opinion</Text>
@@ -84,7 +182,9 @@ export default function PostScreen() {
                 </Avatar>
 
                 <VStack style={styles.inputArea}>
-                  <Text style={styles.username}>{(user as any)?.username || 'Unknown'}</Text>
+                  <Text style={styles.username}>
+                    {(user as any)?.username || 'Unknown'}
+                  </Text>
                   <Input size="md" style={styles.inputBox}>
                     <InputField
                       placeholder="Defend your opinion..."
@@ -96,11 +196,21 @@ export default function PostScreen() {
                     />
                   </Input>
 
+                  {/* Local preview only */}
+                  {photo ? (
+                    <RNImage
+                      source={{ uri: photo }}
+                      style={{ width: 100, height: 100, borderRadius: 10, marginTop: 8 }}
+                    />
+                  ) : null}
+
                   <HStack style={styles.actionIconsRow}>
                     {icons.map((IconComponent, idx) => (
-                      <View key={idx}>
-                        <IconComponent size={24} color="white" strokeWidth={0.9} />
-                      </View>
+                      <Pressable onPress={addphoto} key={idx}>
+                        <View>
+                          <IconComponent size={24} color="white" strokeWidth={0.9} />
+                        </View>
+                      </Pressable>
                     ))}
                   </HStack>
                 </VStack>
@@ -110,8 +220,12 @@ export default function PostScreen() {
             {/* Post Button */}
             <HStack style={styles.footerRow}>
               <Text style={styles.replyInfo}>Anyone can reply & debate</Text>
-              <Button style={[styles.postButton, { opacity: isDisabled ? 0.5 : 1 }]} onPress={onPress} disabled={isDisabled}>
-                <ButtonText>Post</ButtonText>
+              <Button
+                style={[styles.postButton, { opacity: isDisabled ? 0.3 : 1 }]}
+                onPress={onPress}
+                disabled={isDisabled || isUploading}
+              >
+                <ButtonText>{isUploading ? 'Uploading...' : 'Post'}</ButtonText>
               </Button>
             </HStack>
           </VStack>
@@ -222,8 +336,8 @@ const styles = StyleSheet.create({
     borderRadius: 9999,
     paddingHorizontal: 24,
     paddingVertical: 8,
-    backgroundColor: '#222',
-    shadowColor: '#000',
+    backgroundColor: '#fffefeff',
+    shadowColor: '#ffffffff',
     shadowOpacity: 0.08,
     shadowRadius: 6,
     elevation: 1,

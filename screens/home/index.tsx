@@ -20,7 +20,7 @@ function timeAgo(dateString: string) {
   return `${diffYear}y`;
 }
 import React from 'react';
-import {Pressable, ScrollView} from 'react-native';
+import {Pressable, RefreshControl, ScrollView} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text } from '@/components/ui/text';
 import { useAuth } from '@/providers/AuthProvider';
@@ -29,26 +29,42 @@ import { Card } from '@/components/ui/card';
 import { Avatar, AvatarFallbackText, AvatarImage, AvatarBadge } from '@/components/ui/avatar';
 import { HStack } from '@/components/ui/hstack';
 import { Heading } from '@/components/ui/heading';
-import { Images, Camera, Mic, VideoIcon, Hash, Scale, Heart, MessageCircle, Vote, MoreHorizontal } from 'lucide-react-native';
-import { usePosts } from '@/providers/PostsProvider';
+import { Images, Camera, Mic, VideoIcon, Hash, Scale, Heart, MessageCircle, Vote, MoreHorizontal, Megaphone, MegaphoneIcon, Speaker, Speech } from 'lucide-react-native';
+import { usedPosts } from '@/providers/PostsProvider';
 import { VStack } from '@/components/ui/vstack';
 import { Divider } from '@/components/ui/divider';
 import { router } from 'expo-router';
+import { publicFileUrl } from '@/lib/storage';
+
+
 
 
 
 export default function HomeScreen() {
   const { user } = useAuth();
-  const { posts } = usePosts();
+  const { posts, refetch } = usedPosts();
+
+
+  const [refreshing, setRefreshing] = React.useState(false);
+  const BUCKET = 'post-images'; 
+ // const path = `${posts.user_id}/${post.file}`;
+ // const imgUri = publicFileUrl(BUCKET, path);
+
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 2000);
+  }, [refetch]);
   // Show all posts, not just user's
   return (
     <SafeAreaView style={styles.container}>
-      {/* Minimal header with centered logo */}
+      {/* header with logo */}
        <View style={styles.header}>
         <View style={styles.leftContainer}>
           <View style={styles.logoCircle}>
             <Image
-              source={require('@/assets/images/EchelonLogo3d.png')} // Your logo path here
+              source={require('@/assets/images/EchelonLogo3d.png')} 
               style={styles.logo}
               resizeMode="contain"
             />
@@ -57,6 +73,9 @@ export default function HomeScreen() {
       </View>
       {/* Feed */}
       <ScrollView style={styles.feed} contentContainerStyle={{ paddingBottom: 32 }} showsVerticalScrollIndicator={false}>
+         <Text> refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }</Text>
         {(posts?.length ?? 0) === 0 ? (
           <Text style={{ color: 'gray', textAlign: 'center', marginTop: 24 }}>No posts yet.</Text>
         ) : null}
@@ -80,9 +99,15 @@ export default function HomeScreen() {
                   </Text>
                 </View>
                 <Text style={styles.postText}>{post.text}</Text>
-                <View style={styles.actionsRow}>
+              <Image
+                source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}` }}
+                style={{ width: '100%', height: 200, borderRadius: 10, marginTop: 8 }}
+                onError={(e) => console.log('Image failed to load:', `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}`, e.nativeEvent.error)}
+              />
+               {/* {post?.file && <Image source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}` }} style={{ width: '100%', height: 200, borderRadius: 10, marginTop: 8 }} />} */}
+              <View style={styles.actionsRow}>
                   <TouchableOpacity style={styles.actionIcon}>
-                    <Scale size={22} color="#b0b0b0" />
+                    <Speech size={23} color="#b0b0b0" />
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.actionIcon}>
                     <Heart size={22} color="#b0b0b0" />
@@ -95,7 +120,6 @@ export default function HomeScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
-              {/* Three-dot menu (optional, can be added later) */}
             </View>
             {idx < ((posts?.length ?? 0) - 1) && (
               <View style={styles.divider} />

@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-import {Home,Plus,User,Scale, BookOpen,} from 'lucide-react-native'
+import {Home,Plus,User,Scale, BookOpen, Speech, Vote, SearchIcon,} from 'lucide-react-native'
 import {useSafeRouter as useRouter} from '@/lib/fixExpoRouterBug';
 
 export default function TabLayout() {
@@ -29,7 +29,7 @@ export default function TabLayout() {
         name="topics"
         options={{
             title: '',
-          tabBarIcon: ({ color, focused }) => (<BookOpen color={color} size = {28} />
+          tabBarIcon: ({ color, focused }) => (<SearchIcon color={color} size = {28} />
           ),
         }}
       />
@@ -52,7 +52,7 @@ export default function TabLayout() {
         name="debates"
         options={{
             title: '',
-          tabBarIcon: ({ color, focused }) => (<Scale color={color} size = {30} />
+          tabBarIcon: ({ color, focused }) => (<Vote color={color} size = {30} />
           ),
         }}
       />

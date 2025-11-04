@@ -8,6 +8,7 @@ export type Post = {
   id: string;
   user_id: string;
   text: string;
+  file: string;
   created_at: string;
   user?: {
     id: string;
@@ -49,7 +50,7 @@ export const PostsProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 };
 
-export const usePosts = () => {
+export const usedPosts = () => {
   const context = useContext(PostsContext);
   if (!context) throw new Error('usePosts must be used within a PostsProvider');
   return context;
