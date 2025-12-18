@@ -2,7 +2,8 @@ import React, { createContext, useContext } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from './AuthProvider';
-import {getPosts} from '@/hooks/use-posts'
+import {usePosts} from '@/hooks/use-posts'
+import { useUploadFile } from '@/providers/uploadfile';
 
 export type Post = {
   id: string;
@@ -25,12 +26,13 @@ interface PostsContextType {
   addPost: (post: Post) => void;
 }
 
-const PostsContext = createContext<PostsContextType | undefined>(undefined);
+ export const PostsContext = createContext<PostsContextType | undefined>(undefined);
 
 export const PostsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
-  const { data, isLoading, error, refetch } = require('@/hooks/use-posts').usePosts();
+  const { data, isLoading, error, refetch } = usePosts();
   const queryClient = useQueryClient();
+ // const {uploadFile} = useUploadFile();
 
   // Optimistically update posts list in Query cache
   const addPost = (post: Post) => {
@@ -49,6 +51,8 @@ export const PostsProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     </PostsContext.Provider>
   );
 };
+
+
 
 export const usedPosts = () => {
   const context = useContext(PostsContext);

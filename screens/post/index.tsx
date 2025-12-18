@@ -10,6 +10,7 @@ import {
   Image as RNImage,
 } from 'react-native';
 import { Text } from '@/components/ui/text';
+import {useAppStore} from '@/Store/useAppStore';
 import { useAuth } from '@/providers/AuthProvider';
 import { Avatar, AvatarImage } from '@/components/ui/avatar';
 import { HStack } from '@/components/ui/hstack';
@@ -23,46 +24,51 @@ import * as Crypto from 'expo-crypto';
 import { usedPosts } from '@/providers/PostsProvider';
 import { Pressable } from '@/components/ui/pressable';
 import * as ImagePicker from 'expo-image-picker';
+import { useUploadFile } from '@/providers/uploadfile';
+import { useLocalSearchParams } from 'expo-router';
+import { useEffect } from 'react';
 
 export default function PostScreen() {
   const { user } = useAuth();
   const { addPost } = usedPosts();
 
   const [text, setText] = useState('');
+  //const isImagePostEnabled = useAppStore((state) => state.isImagePostEnabled);
   const [photo, setPhoto] = useState<string>('');          
   const [fileName, setFileName] = useState<string | null>(null); 
   const [isUploading, setIsUploading] = useState(false);
+  const { cameraPhotoUri } = useLocalSearchParams<{ cameraPhotoUri?: string }>();
+
+  useEffect(() => {
+    const uploadCameraPhoto = async () => {
+      if (!cameraPhotoUri || !user) return;
+
+      const filename = `${Date.now()}.jpg`;
+      const type = 'image/jpeg';
+
+      setPhoto(cameraPhotoUri);
+
+      const uploadedName = await uploadFile(
+        (user as any).id,
+        cameraPhotoUri,
+        type,
+        filename
+      );
+
+      if (uploadedName) {
+        setFileName(uploadedName);
+      }
+    };
+
+    uploadCameraPhoto();
+  }, [cameraPhotoUri]);
+
+
 
   const isDisabled = !text.trim() && !photo; 
 
   // Upload file to Supabase 
-  const uploadFile = async (uri: string, type: string | null, name: string) => {
-    try {
-      setIsUploading(true);
-
-      
-      const res = await fetch(uri);
-      const arrayBuffer = await res.arrayBuffer();
-
-      
-      const { data, error } = await supabase.storage
-        .from('files') // bucket name
-        .upload(`${(user as any).id}/${name}`, arrayBuffer, {
-          contentType: type ?? 'image/jpeg',
-          upsert: true,
-        });
-
-      console.log('Upload result:', data, error);
-      if (error) throw error;
-
-      return name; // return fileName
-    } catch (err) {
-      console.error('Upload failed:', err);
-      return null;
-    } finally {
-      setIsUploading(false);
-    }
-  };
+  const uploadFile = useUploadFile().uploadFile;
 
   const addphoto = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -72,14 +78,20 @@ export default function PostScreen() {
       quality: 1,
     });
 
+    
+
     if (!result.canceled && result.assets?.[0]?.uri) {
       const uri = result.assets[0].uri;
       const type = result.assets[0].mimeType ?? 'image/jpeg';
+      const id = result.assets[0].assetId ?? Crypto.randomUUID();
       setPhoto(uri);
 
       
       const generatedName = `${Date.now()}.jpg`;
-      const uploadedName = await uploadFile(uri, type, generatedName);
+      const uploadedName = await uploadFile(id,uri, type, generatedName);
+
+      isImagePostEnabled: true;
+
 
       if (uploadedName) {
         setFileName(uploadedName);
@@ -91,8 +103,29 @@ export default function PostScreen() {
     }
   };
 
+
+  const handleIconPress = (idx: number) => {
+    if (idx === 0) {
+      addphoto();
+    }
+    else if(idx ===1){
+      router.push({
+        pathname:'/camera',
+        params: {threadId: null}
+      });
+    }
+    else if (idx === 2) {
+      router.push({ 
+        pathname: '/video',
+        params: { threadId: null }, 
+      });
+    };
+  }
+
   const onPress = async () => {
     if (!user) return;
+
+    
 
     try {
       const { data, error } = await supabase
@@ -141,7 +174,7 @@ export default function PostScreen() {
     }
   };
 
-  const icons = [Images, Camera, Mic, VideoIcon, Hash];
+  const icons = [Images, Camera, VideoIcon, Hash];
 
   return (
     <SafeAreaView style={styles.container}>
@@ -206,7 +239,7 @@ export default function PostScreen() {
 
                   <HStack style={styles.actionIconsRow}>
                     {icons.map((IconComponent, idx) => (
-                      <Pressable onPress={addphoto} key={idx}>
+                      <Pressable onPress={() => handleIconPress(idx)} key={idx}>
                         <View>
                           <IconComponent size={24} color="white" strokeWidth={0.9} />
                         </View>
@@ -316,7 +349,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 8,
     justifyContent: 'flex-start',
-    gap: 24,
+    gap: 38,
   },
 
   footerRow: {

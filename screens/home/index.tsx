@@ -1,4 +1,17 @@
 // Helper to format time difference
+
+import React from 'react';
+import {Pressable, RefreshControl, ScrollView} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Text } from '@/components/ui/text';
+import { useAuth } from '@/providers/AuthProvider';
+import { View, Image, StyleSheet, TouchableOpacity } from 'react-native';
+import { Avatar, AvatarFallbackText, AvatarImage, AvatarBadge } from '@/components/ui/avatar';
+import { Images, Camera, Mic, VideoIcon, Hash, Scale, Heart, MessageCircle, Vote, MoreHorizontal, Megaphone, MegaphoneIcon, Speaker, Speech } from 'lucide-react-native';
+import { usedPosts } from '@/providers/PostsProvider';
+
+
+
 function timeAgo(dateString: string) {
   const now = new Date();
   const date = new Date(dateString);
@@ -19,25 +32,6 @@ function timeAgo(dateString: string) {
   const diffYear = Math.floor(diffDay / 365);
   return `${diffYear}y`;
 }
-import React from 'react';
-import {Pressable, RefreshControl, ScrollView} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Text } from '@/components/ui/text';
-import { useAuth } from '@/providers/AuthProvider';
-import { View, Image, StyleSheet, TouchableOpacity } from 'react-native';
-import { Card } from '@/components/ui/card';
-import { Avatar, AvatarFallbackText, AvatarImage, AvatarBadge } from '@/components/ui/avatar';
-import { HStack } from '@/components/ui/hstack';
-import { Heading } from '@/components/ui/heading';
-import { Images, Camera, Mic, VideoIcon, Hash, Scale, Heart, MessageCircle, Vote, MoreHorizontal, Megaphone, MegaphoneIcon, Speaker, Speech } from 'lucide-react-native';
-import { usedPosts } from '@/providers/PostsProvider';
-import { VStack } from '@/components/ui/vstack';
-import { Divider } from '@/components/ui/divider';
-import { router } from 'expo-router';
-import { publicFileUrl } from '@/lib/storage';
-
-
-
 
 
 export default function HomeScreen() {
@@ -46,20 +40,26 @@ export default function HomeScreen() {
 
 
   const [refreshing, setRefreshing] = React.useState(false);
+
   const BUCKET = 'post-images'; 
+  
  // const path = `${posts.user_id}/${post.file}`;
  // const imgUri = publicFileUrl(BUCKET, path);
 
-  const onRefresh = React.useCallback(() => {
+  const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
-    setTimeout(() => {
+
+    try {
+      await refetch();   
+    } finally {
       setRefreshing(false);
-    }, 2000);
+    }
   }, [refetch]);
-  // Show all posts, not just user's
+
+  // try to show all posts
   return (
     <SafeAreaView style={styles.container}>
-      {/* header with logo */}
+      {/* logo header */}
        <View style={styles.header}>
         <View style={styles.leftContainer}>
           <View style={styles.logoCircle}>
@@ -72,10 +72,7 @@ export default function HomeScreen() {
         </View>
       </View>
       {/* Feed */}
-      <ScrollView style={styles.feed} contentContainerStyle={{ paddingBottom: 32 }} showsVerticalScrollIndicator={false}>
-         <Text> refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }</Text>
+      <ScrollView style={styles.feed} contentContainerStyle={{ paddingBottom: 32 }} showsVerticalScrollIndicator={false} refreshControl={ <RefreshControl refreshing={refreshing} onRefresh={onRefresh} /> }>
         {(posts?.length ?? 0) === 0 ? (
           <Text style={{ color: 'gray', textAlign: 'center', marginTop: 24 }}>No posts yet.</Text>
         ) : null}
@@ -99,12 +96,18 @@ export default function HomeScreen() {
                   </Text>
                 </View>
                 <Text style={styles.postText}>{post.text}</Text>
+
+              
               <Image
                 source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}` }}
-                style={{ width: '100%', height: 200, borderRadius: 10, marginTop: 8 }}
+                style={{ 
+                  width: !!post.file? '100%': 0, 
+                  height: !!post.file? 200 : 0, 
+                  borderRadius: !!post.file ? 10 : 0, 
+                  marginTop: !!post.file ? 8 : 0 }}
                 onError={(e) => console.log('Image failed to load:', `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}`, e.nativeEvent.error)}
               />
-               {/* {post?.file && <Image source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}` }} style={{ width: '100%', height: 200, borderRadius: 10, marginTop: 8 }} />} */}
+               {/**/}
               <View style={styles.actionsRow}>
                   <TouchableOpacity style={styles.actionIcon}>
                     <Speech size={23} color="#b0b0b0" />

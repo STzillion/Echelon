@@ -17,5 +17,5 @@
     ".expo/types/**/*.ts",
     "expo-env.d.ts",
     "nativewind-env.d.ts"
-, "lib/supabase.js"  ]
+, "lib/supabase.js", "Store/useAppStore.js"  ]
 }
