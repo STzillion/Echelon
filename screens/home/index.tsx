@@ -1,14 +1,17 @@
 // Helper to format time difference
 
 import React from 'react';
-import {Pressable, RefreshControl, ScrollView} from 'react-native';
+import {RefreshControl, ScrollView} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text } from '@/components/ui/text';
 import { useAuth } from '@/providers/AuthProvider';
 import { View, Image, StyleSheet, TouchableOpacity } from 'react-native';
 import { Avatar, AvatarFallbackText, AvatarImage, AvatarBadge } from '@/components/ui/avatar';
-import { Images, Camera, Mic, VideoIcon, Hash, Scale, Heart, MessageCircle, Vote, MoreHorizontal, Megaphone, MegaphoneIcon, Speaker, Speech } from 'lucide-react-native';
+import { Heart, MessageCircle, Vote, Swords } from 'lucide-react-native';
 import { usedPosts } from '@/providers/PostsProvider';
+import { PostVideo } from '../video/postVideo';
+
+
 
 
 
@@ -40,8 +43,10 @@ export default function HomeScreen() {
 
 
   const [refreshing, setRefreshing] = React.useState(false);
+  
 
   const BUCKET = 'post-images'; 
+  
   
  // const path = `${posts.user_id}/${post.file}`;
  // const imgUri = publicFileUrl(BUCKET, path);
@@ -98,28 +103,35 @@ export default function HomeScreen() {
                 <Text style={styles.postText}>{post.text}</Text>
 
               
-              <Image
-                source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}` }}
-                style={{ 
-                  width: !!post.file? '100%': 0, 
-                  height: !!post.file? 200 : 0, 
-                  borderRadius: !!post.file ? 10 : 0, 
-                  marginTop: !!post.file ? 8 : 0 }}
-                onError={(e) => console.log('Image failed to load:', `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}`, e.nativeEvent.error)}
-              />
+              {post.file && post.file.endsWith('.mp4') ? (
+                <PostVideo 
+                  uri={`${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}`}
+                  isVisible={!!post.file}
+                />
+              ) : (
+                <Image
+                  source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}` }}
+                  style={{ 
+                    width: !!post.file ? '100%' : 0, 
+                    height: !!post.file ? 200 : 0, 
+                    borderRadius: !!post.file ? 10 : 0, 
+                    marginTop: !!post.file ? 8 : 0 
+                  }}
+                />
+              )}
                {/**/}
               <View style={styles.actionsRow}>
                   <TouchableOpacity style={styles.actionIcon}>
-                    <Speech size={23} color="#b0b0b0" />
+                    <Heart size={20} color="#b0b0b0" />
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.actionIcon}>
-                    <Heart size={22} color="#b0b0b0" />
+                    <MessageCircle size={20} color="#b0b0b0" />
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionIcon}>
-                    <MessageCircle size={22} color="#b0b0b0" />
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionIcon}>
-                    <Vote size={22} color="#b0b0b0" />
+                  <TouchableOpacity style={styles.actionIconDebateButton}>
+                    <View style={styles.buttonContent}>
+                      <Swords size={16} color="#b0b0b0" />
+                      <Text style={styles.buttonText}>Debate</Text>
+                    </View>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -138,6 +150,26 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0f0f0f',
+  },
+
+  actionIconDebateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a1a1a', // Dark background
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20, // Rounded pill shape
+    borderWidth: 1,
+    borderColor: '#333', // Subtle border
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6, // Space between icon and text
+  },
+  buttonText: {
+    color: '#b0b0b0',
+    fontSize: 11,
   },
   header: {
      flexDirection: 'row',

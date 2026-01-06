@@ -10,13 +10,12 @@ import {
   Image as RNImage,
 } from 'react-native';
 import { Text } from '@/components/ui/text';
-import {useAppStore} from '@/Store/useAppStore';
 import { useAuth } from '@/providers/AuthProvider';
 import { Avatar, AvatarImage } from '@/components/ui/avatar';
 import { HStack } from '@/components/ui/hstack';
 import { VStack } from '@/components/ui/vstack';
 import { Button, ButtonText } from '@/components/ui/button';
-import { Input, InputField } from '@/components/ui/input';
+import Input from './input';
 import { Images, Camera, Mic, VideoIcon, Hash } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { router } from 'expo-router';
@@ -26,7 +25,15 @@ import { Pressable } from '@/components/ui/pressable';
 import * as ImagePicker from 'expo-image-picker';
 import { useUploadFile } from '@/providers/uploadfile';
 import { useLocalSearchParams } from 'expo-router';
-import { useEffect } from 'react';
+import {VideoView, AudioTrack, useVideoPlayer } from 'expo-video';
+import { Post } from '@/providers/PostsProvider';
+
+
+interface PostCallProps {
+  post: Post;
+  updatePost: (post: Post) => void;
+}
+
 
 export default function PostScreen() {
   const { user } = useAuth();
@@ -35,42 +42,71 @@ export default function PostScreen() {
   const [text, setText] = useState('');
   //const isImagePostEnabled = useAppStore((state) => state.isImagePostEnabled);
   const [photo, setPhoto] = useState<string>('');          
-  const [fileName, setFileName] = useState<string | null>(null); 
+  const [ImageFilename, setImageFilename] = useState<string | null>(null); 
+  const [VideoFilename, setVideoFilename] = useState<string | null>(null); 
   const [isUploading, setIsUploading] = useState(false);
   const { cameraPhotoUri } = useLocalSearchParams<{ cameraPhotoUri?: string }>();
+  const [video, setVideo] = useState<string>('');
 
-  useEffect(() => {
-    const uploadCameraPhoto = async () => {
-      if (!cameraPhotoUri || !user) return;
+  const Filetype = photo.endsWith('.mp4') ? 'video/mp4' : 'image/jpeg';
+ 
 
-      const filename = `${Date.now()}.jpg`;
-      const type = 'image/jpeg';
-
-      setPhoto(cameraPhotoUri);
-
-      const uploadedName = await uploadFile(
-        (user as any).id,
-        cameraPhotoUri,
-        type,
-        filename
-      );
-
-      if (uploadedName) {
-        setFileName(uploadedName);
-      }
-    };
-
-    uploadCameraPhoto();
-  }, [cameraPhotoUri]);
-
-
-
-  const isDisabled = !text.trim() && !photo; 
+ 
+  const isDisabled = (!text.trim() && !photo && !video) || isUploading;
+  
+   const videoPlayer = useVideoPlayer(video, (player) => {
+    player.loop = true;
+    player.play();
+  });
 
   // Upload file to Supabase 
   const uploadFile = useUploadFile().uploadFile;
 
+  const pickVideo = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      allowsEditing: false,
+      quality: 1,
+    });
+    
+
+    if (!result.canceled && result.assets?.[0]) {
+      const videoUri = result.assets[0].uri;
+      const videoId = result.assets[0].assetId ?? Crypto.randomUUID();
+      const VideogeneratedName = `${Date.now()}.mp4`;
+
+      console.log('=== PICK VIDEO DEBUG ===');
+      console.log('Video URI:', videoUri);
+      console.log('Generated name:', VideogeneratedName);
+
+
+      setVideo(videoUri);
+      setIsUploading(true);
+
+      console.log(videoUri);
+      console.log(result.assets[0].mimeType);
+      console.log(result.assets[0].duration);
+
+      const uploadVideo = await uploadFile(user?.id,videoUri,  'video/mp4',  VideogeneratedName);
+
+      setIsUploading(false);
+
+      console.log('Uploaded video name:', uploadVideo);
+      console.log('========================');
+
+      if (uploadVideo) {
+        const uploadedVideoName = await uploadVideo;
+        setVideoFilename(uploadedVideoName);
+      } else {
+        setVideo('');
+        setVideoFilename(null);
+      }
+    }
+  };
+
   const addphoto = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
       allowsEditing: true,
@@ -88,17 +124,21 @@ export default function PostScreen() {
 
       
       const generatedName = `${Date.now()}.jpg`;
-      const uploadedName = await uploadFile(id,uri, type, generatedName);
+      const uploadedName = await uploadFile(
+       user?.id,  // First folder = 'public'
+        uri,
+        type,
+        generatedName
+      );
 
-      isImagePostEnabled: true;
 
 
       if (uploadedName) {
-        setFileName(uploadedName);
+        setImageFilename(uploadedName);
       } else {
        
         setPhoto('');
-        setFileName(null);
+        setImageFilename(null);
       }
     }
   };
@@ -115,17 +155,20 @@ export default function PostScreen() {
       });
     }
     else if (idx === 2) {
-      router.push({ 
-        pathname: '/video',
-        params: { threadId: null }, 
-      });
+      pickVideo();
     };
   }
 
   const onPress = async () => {
     if (!user) return;
 
-    
+     console.log('=== BEFORE INSERT ===');
+     console.log('ImageFilename:', ImageFilename);
+     console.log('VideoFilename:', VideoFilename);
+     console.log('Will save:', ImageFilename || VideoFilename);
+     console.log('=====================');
+
+    const mediaFile = VideoFilename ?? ImageFilename ?? null;
 
     try {
       const { data, error } = await supabase
@@ -134,7 +177,7 @@ export default function PostScreen() {
           id: Crypto.randomUUID(),
           user_id: (user as any)?.id,
           text,
-          file: fileName, // setting just the filename to the table. I previously had a bug here with the full path
+          file: mediaFile, // setting just the filename to the table. I previously had a bug here with the full path
         })
         .select();
 
@@ -218,22 +261,22 @@ export default function PostScreen() {
                   <Text style={styles.username}>
                     {(user as any)?.username || 'Unknown'}
                   </Text>
-                  <Input size="md" style={styles.inputBox}>
-                    <InputField
-                      placeholder="Defend your opinion..."
-                      style={styles.inputText}
-                      placeholderTextColor="#b0b0b0"
-                      value={text}
-                      onChangeText={setText}
-                      multiline
-                    />
-                  </Input>
+                  <Input post={post} updatePost={updatePost} />
 
                   {/* Local preview only */}
                   {photo ? (
                     <RNImage
                       source={{ uri: photo }}
                       style={{ width: 100, height: 100, borderRadius: 10, marginTop: 8 }}
+                    />
+                  ) : null}
+                  {/* Video preview */}
+                  {video ? (
+                    <VideoView
+                      player={videoPlayer}
+                      style={{ width: 200, height: 200, borderRadius: 10, marginTop: 8 }}
+                      contentFit="contain"
+                      nativeControls={true}
                     />
                   ) : null}
 

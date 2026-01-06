@@ -12,7 +12,7 @@ export function useUploadFile() {
   const uploadFile = async (
     id: string,
     uri: string,
-    type: string | null,
+    type: string,
     name: string
   ): Promise<string | null> => {
     try {
@@ -21,10 +21,17 @@ export function useUploadFile() {
       const res = await fetch(uri);
       const arrayBuffer = await res.arrayBuffer();
 
+      const path = `${id}/${name}`;
+      console.log('=== UPLOAD DEBUG ===');
+      console.log('Uploading to path:', path);
+      console.log('Bucket: files');
+      console.log('Content type:', type);
+      console.log('====================');
+
       const { error } = await supabase.storage
         .from('files')
-        .upload(`${(user as any).id}/${name}`, arrayBuffer, {
-          contentType: type ?? 'image/jpeg',
+        .upload(`${id}/${name}`, arrayBuffer, {
+          contentType: type,
           upsert: true,
         });
 
