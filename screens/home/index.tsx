@@ -1,15 +1,21 @@
 // Helper to format time difference
 
 import React from 'react';
-import {RefreshControl, ScrollView} from 'react-native';
+import {Pressable, RefreshControl, ScrollView} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text } from '@/components/ui/text';
 import { useAuth } from '@/providers/AuthProvider';
 import { View, Image, StyleSheet, TouchableOpacity } from 'react-native';
 import { Avatar, AvatarFallbackText, AvatarImage, AvatarBadge } from '@/components/ui/avatar';
-import { Heart, MessageCircle, Vote, Swords } from 'lucide-react-native';
+import { Heart, MessageCircle, Repeat, ScanEye, Swords } from 'lucide-react-native';
 import { usedPosts } from '@/providers/PostsProvider';
 import { PostVideo } from '../video/postVideo';
+import { supabase } from '@/lib/supabase';
+import * as Haptics from 'expo-haptics';
+import { Post } from '@/providers/PostsProvider';
+import { router } from 'expo-router';
+import * as Crypto from 'expo-crypto';
+import { HStack } from '@/components/ui/hstack';
 
 
 
@@ -37,29 +43,181 @@ function timeAgo(dateString: string) {
 }
 
 
-export default function HomeScreen() {
+export default function HomeScreen(post: Post) {
   const { user } = useAuth();
+  const currentUser = user as any;
   const { posts, refetch } = usedPosts();
-
-
+  const [debates, setDebates] = React.useState<any[]>([]);
   const [refreshing, setRefreshing] = React.useState(false);
-  
+
 
   const BUCKET = 'post-images'; 
+
+  
   
   
  // const path = `${posts.user_id}/${post.file}`;
  // const imgUri = publicFileUrl(BUCKET, path);
 
+
+ const AddLike = async (postId: string) => {
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+   try {
+     const { data, error } = await supabase.from('Like').insert({
+       user_id: currentUser?.id,
+       post_id: postId,
+     });
+     if (error) {
+       console.log('Error adding like:', error);
+     } else {
+       await refetch();
+     }
+   } catch (err) {
+     console.error('Exception adding like:', err);
+   }
+ }
+
+ const RemoveLike = async (postId: string) => {
+   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+     try {
+       const { data, error } = await supabase.from('Like').delete().eq('user_id', currentUser?.id).eq('post_id', postId);
+       if (error) {
+         console.log('Error removing like:', error);
+       } else {
+         await refetch();
+       }
+     } catch (err) {
+       console.error('Exception removing like:', err);
+     }
+ }
+const RemoveRepost = async (orig: Post) => {
+  try {
+    // delete the repost row that this user created for orig
+    const { error } = await supabase
+      .from('Post')
+      .delete()
+      .eq('parent_id', orig.id)
+      .eq('repost_user_id', currentUser?.id);
+    if (error) console.log('Error removing repost:', error);
+    await refetch();
+  } catch (err) {
+    console.error('Exception removing repost:', err);
+  }
+};
+ const addRepost = async (orig: Post) => {
+  try {
+    const newPostId = Crypto.randomUUID();
+    const { data: repostData, error: repostError } = await supabase.from('Post').insert({
+      id: newPostId,
+      user_id: orig.user_id,          // original author should stay on top row
+      parent_id: orig.id,
+      text: orig.text,
+      file: orig.file,
+      tag_name: orig.tag_name,
+      repost_user_id: currentUser?.id,
+    }).select('id').single();
+
+    if (repostError) {
+      console.error('Error reposting:', repostError);
+      return;
+    }
+
+    // Copy likes from original post to repost so repost shows same like count
+    const { data: originalLikes, error: likeError } = await supabase
+      .from('Like')
+      .select('user_id')
+      .eq('post_id', orig.id);
+
+    if (!likeError && originalLikes?.length) {
+      const clonedLikes = originalLikes.map((like: { user_id: string }) => ({
+        user_id: like.user_id,
+        post_id: newPostId,
+      }));
+      const { error: cloneError } = await supabase.from('Like').insert(clonedLikes);
+      if (cloneError) {
+        console.error('Error copying likes to repost:', cloneError);
+      }
+    }
+
+    await refetch();
+  } catch (err) {
+    console.error('Error reposting:', err);
+  }
+};
+
+  React.useEffect(() => {
+    const loadDebates = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('Debate')
+          .select('*, challenger:User!challenger_id(*), opponent:User!opponent_id(*)');
+        if (error) {
+          console.error('Error loading debates:', error);
+          return;
+        }
+        setDebates(data ?? []);
+      } catch (err) {
+        console.error('Error loading debates:', err);
+      }
+    };
+    loadDebates();
+  }, []);
+
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
 
     try {
-      await refetch();   
+      await refetch();
+      const { data, error } = await supabase
+        .from('Debate')
+        .select('*, challenger:User!challenger_id(*), opponent:User!opponent_id(*)');
+      if (!error && data) setDebates(data);
     } finally {
       setRefreshing(false);
     }
   }, [refetch]);
+
+  const regex = /(#\w+)|(@\w+)|([^#@]+)/g;
+
+  const sortedPosts = React.useMemo(() => {
+    if (!posts) return [];
+    return [...posts].sort((a, b) => {
+      const aIsOwnRepost = a.repost_user_id === currentUser?.id;
+      const bIsOwnRepost = b.repost_user_id === currentUser?.id;
+      if (aIsOwnRepost !== bIsOwnRepost) {
+        return aIsOwnRepost ? 1 : -1;
+      }
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [posts, currentUser?.id]);
+
+
+  const feedPosts = React.useMemo(() => {
+    return sortedPosts.filter((post) => {
+      // Hide repost entries created by current user.
+      return !(post.repost_user_id && post.repost_user_id === currentUser?.id);
+    });
+  }, [sortedPosts, currentUser?.id]);
+
+
+
+  const renderPostText = (text?: string) => {
+    if (!text) return null;
+    const parts = Array.from(text.matchAll(regex), (m) => m[0]);
+    return (
+      <Text style={styles.postText}>
+        {parts.map((part, i) =>
+          part.startsWith('#') ? (
+            <Text key={i} style={{ fontWeight: 'bold' }}>
+              {part}
+            </Text>
+          ) : (
+            <Text key={i}>{part}</Text>
+          )
+        )}
+      </Text>
+    );
+  };
 
   // try to show all posts
   return (
@@ -81,7 +239,13 @@ export default function HomeScreen() {
         {(posts?.length ?? 0) === 0 ? (
           <Text style={{ color: 'gray', textAlign: 'center', marginTop: 24 }}>No posts yet.</Text>
         ) : null}
-        {(posts ?? []).map((post, idx) => (
+        {(feedPosts ?? []).map((post, idx) => {
+          const isLiked = post?.likes?.some((like: { user_id: string}) => like.user_id === currentUser?.id);
+          const repostCount = (posts ?? []).filter(p => p.parent_id === post.id).length;
+          const isReposted = (posts ?? []).some(
+            p => p.parent_id === post.id && p.repost_user_id === currentUser?.id
+          );
+          return (
           <React.Fragment key={post.id}>
             <View style={styles.postCard}>
               {post.user?.avatar ? (
@@ -94,13 +258,97 @@ export default function HomeScreen() {
                 </View>
               )}
               <View style={styles.postContent}>
+                {/* if this post is a repost, show who reposted it */}
+                
+                        {post.repost_user && (
+                  <View style={styles.repostInfoRow}>
+                    <Repeat size={14} color="#aaa" strokeWidth={2} />
+                    <Text style={styles.repostInfo}>
+                      Reposted by {post.repost_user.username}
+                    </Text>
+                  </View>
+                )}
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
-                  <Text style={styles.username}>{post.user?.username || (user as any)?.username}</Text>
+                  <Text style={[styles.username, { marginLeft: 0 }]}>{post.user?.username || (user as any)?.username}</Text>
                   <Text style={{ fontSize: 12, color: '#888', marginLeft: 4 }}>
                     {timeAgo(post.created_at)}
                   </Text>
                 </View>
-                <Text style={styles.postText}>{post.text}</Text>
+                {!debates.some(d => d.root_post_id === post.id) && renderPostText(post.text)}
+                  {debates
+                      .filter((d) => d.root_post_id === post.id)
+                      .map((debate) => (
+                        <View key={debate.id} style={{ marginTop: 8 }}>
+
+                          {/* ORIGINAL ARGUMENT */}
+                          <View style={styles.argumentBox}>
+                            <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                              
+                              {post.user?.avatar ? (
+                                <Avatar size="md" style={styles.avatar}>
+                                  <AvatarImage source={{ uri: post.user.avatar }} />
+                                </Avatar>
+                              ) : (
+                                <View style={styles.grayCircleAvatar}>
+                                  <Text style={styles.grayCircleText}>
+                                    {post.user?.username?.[0]?.toUpperCase() || '?'}
+                                  </Text>
+                                </View>
+                              )}
+
+                              <View style={{ flex: 1 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                  <Text style={styles.username}>{post.user?.username}</Text>
+                                  <Text style={{ fontSize: 12, color: '#888', marginLeft: 4 }}>
+                                    {timeAgo(post.created_at)}
+                                  </Text>
+                                </View>
+
+                                {renderPostText(post.text)}
+                              </View>
+
+                            </View>
+                          </View>
+
+                          {/* VS */}
+                          <Text style={{
+                            color: '#888',
+                            textAlign: 'center',
+                            marginVertical: 6,
+                            fontSize: 12
+                          }}>
+                            ──── VS ────
+                          </Text>
+
+                          {/* COUNTER ARGUMENT */}
+                          <View style={styles.argumentBox}>
+                            <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                              
+                              {debate.challenger?.avatar ? (
+                                <Avatar size="md" style={styles.avatar}>
+                                  <AvatarImage source={{ uri: debate.challenger.avatar }} />
+                                </Avatar>
+                              ) : (
+                                <View style={styles.grayCircleAvatar}>
+                                  <Text style={styles.grayCircleText}>
+                                    {debate.challenger?.username?.[0]?.toUpperCase() || '?'}
+                                  </Text>
+                                </View>
+                              )}
+
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.username}>
+                                  {debate.challenger?.username}
+                                </Text>
+
+                                {renderPostText(debate.challenger_text)}
+                              </View>
+
+                            </View>
+                          </View>
+
+                        </View>
+                    ))}
 
               
               {post.file && post.file.endsWith('.mp4') ? (
@@ -121,26 +369,60 @@ export default function HomeScreen() {
               )}
                {/**/}
               <View style={styles.actionsRow}>
-                  <TouchableOpacity style={styles.actionIcon}>
-                    <Heart size={20} color="#b0b0b0" />
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionIcon}>
+                  <View style={styles.likeGroup}>
+                    <Pressable onPress={ () => 
+                      {
+                        isLiked ? RemoveLike(post.id) : AddLike(post.id);
+                      }} 
+                      style={styles.actionIcon}>
+                      <Heart size={20}  color={isLiked ? 'red' : 'grey'} fill={isLiked ? 'red' : 'transparent'} />
+                    </Pressable>
+                    {(post.likes?.length ?? 0) > 0 && (
+                      <Text style={styles.likeCount}>{post.likes!.length}</Text>
+                    )}
+                  </View>
+                  <Pressable style={styles.actionIcon}>
                     <MessageCircle size={20} color="#b0b0b0" />
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionIconDebateButton}>
+                  </Pressable>
+                  <View style={styles.repostGroup}>
+                    <Pressable
+                      onPress={() =>
+                        isReposted ? RemoveRepost(post) : addRepost(post)
+                      }
+                      style={styles.actionIcon}
+                    >
+                      <Repeat
+                        size={20}
+                        color={isReposted ? 'cyan' : '#b0b0b0'}
+                      />
+                    </Pressable>
+                    {repostCount > 0 && (
+                      <Text style={styles.repostCount}>{repostCount}</Text>
+                    )}
+                  </View>
+                  <Pressable
+                    style={styles.actionIconDebateButton}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/debateScreen',
+                        params: { postId: post.id },
+                      })
+                    }
+                  >
                     <View style={styles.buttonContent}>
                       <Swords size={16} color="#b0b0b0" />
                       <Text style={styles.buttonText}>Debate</Text>
                     </View>
-                  </TouchableOpacity>
+                  </Pressable>
                 </View>
               </View>
             </View>
-            {idx < ((posts?.length ?? 0) - 1) && (
+            {idx < ((feedPosts?.length ?? 0) - 1) && (
               <View style={styles.divider} />
             )}
           </React.Fragment>
-        ))}
+        );
+        })}
       </ScrollView>
     </SafeAreaView>
   );
@@ -150,6 +432,19 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0f0f0f',
+  },
+ argumentBox: {
+  backgroundColor: '#13212f', // slightly different
+  borderRadius: 12,
+  padding: 10,
+  marginTop: 8,
+
+  borderWidth: 1,
+  borderColor: '#262626', // THIS is what makes it visible
+},
+
+  actionIcon: {
+    padding: 4,
   },
 
   actionIconDebateButton: {
@@ -197,16 +492,16 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     backgroundColor: '#0f0f0f',
     borderRadius: 18,
-    marginHorizontal: 16,
-    marginTop: 16,
-    padding: 16,
+    marginHorizontal: 10,
+    marginTop: 10,
+    padding: 10,
     shadowColor: '#000',
     shadowOpacity: 0.06,
     shadowRadius: 4,
     elevation: 1,
   },
   avatar: {
-    marginRight: 12,
+    marginRight: 15,
   },
   postContent: {
     flex: 1,
@@ -215,13 +510,24 @@ const styles = StyleSheet.create({
   username: {
     color: 'white',
     fontWeight: '500',
-    fontSize: 15,
+    fontSize: 14.5,
     marginBottom: 2,
   },
   postText: {
     color: '#fff',
-    fontSize: 15,
-    marginBottom: 10,
+    fontSize: 14.5,
+    lineHeight: 22,          // increased line height for better spacing
+    marginBottom: 5,
+  },
+  likeCount: {
+    color: '#b0b0b0',
+    fontSize: 13,
+    fontWeight: '600', // make number stand out
+    marginLeft: 1, // even closer to heart
+  },
+  likeGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   actionsRow: {
     flexDirection: 'row',
@@ -229,9 +535,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     gap: 36,
   },
-  actionIcon: {
-    padding: 4,
-  },
+
   divider: {
     height: 1,
     backgroundColor: '#222',
@@ -240,18 +544,19 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   grayCircleAvatar: {
-    width: 40,
-    height: 40,
+    width: 35,
+    height: 35,
     borderRadius: 20,
     backgroundColor: '#444',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+    marginTop: 2,
   },
   grayCircleText: {
     color: '#fff',
     fontWeight: '400',
-    fontSize: 15,
+    fontSize: 14.5,
   },
     leftContainer: {
     flexDirection: 'row',
@@ -271,5 +576,58 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+  repostInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
+    marginLeft: 4,
+  },
+  repostInfo: {
+    color: '#aaa',
+    fontSize: 12,
+    marginLeft: 4,
+    marginRight: 4,
+  },
+  repostGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  repostCount: {
+    color: '#aaa',
+    fontSize: 13,
+    fontWeight: '600',
+    marginLeft: 1,
+  },
+  debatePanel: {
+    marginTop: 8,
+    marginBottom: 2,
+    backgroundColor: '#1b1b2a',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#394156',
+    padding: 8,
+  },
+  debateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  debateUser: {
+    color: '#d6e4ff',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  debateVs: {
+    color: '#8ea5ef',
+    fontWeight: '800',
+    marginHorizontal: 4,
+  },
+  debateStatus: {
+    marginTop: 4,
+    color: '#9cb4ff',
+    fontSize: 11,
+    textAlign: 'center',
+  },
+
 });
 

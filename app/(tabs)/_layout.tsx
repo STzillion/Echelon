@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-import {Home,Plus,User,Scale, BookOpen, Speech, Vote, SearchIcon,} from 'lucide-react-native'
+import {Home,Plus,User, Vote, SearchIcon,} from 'lucide-react-native'
 import {useSafeRouter as useRouter} from '@/lib/fixExpoRouterBug';
 
 export default function TabLayout() {

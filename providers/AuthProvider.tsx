@@ -33,22 +33,7 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) =>{
 
       router.replace('/(tabs)')
     };
-    const getUser = async (session: Session | null) => 
-    {
-      console.log(session?.user.id);
-        if(session)
-        {
-           const{data, error} = await supabase.from('User').select().eq('id', session.user.id)
-           console.log(data, error)
-           if(!error)
-           {
-            setUser(data[0])
-             router.push('/(tabs)')
-           }
-           //setUser(data)
-          
-        }
-    }
+
 
     const logOut = async () =>
     {

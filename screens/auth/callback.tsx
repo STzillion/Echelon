@@ -21,6 +21,7 @@ export default function CallbackScreen() {
       } else {
 
        // router.replace('/(auth)/username');
+       router.replace('/(auth)/username');
       }
     };
 

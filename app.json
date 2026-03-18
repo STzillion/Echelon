@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "ToothAndNail",
-    "slug": "ToothAndNail",
+    "name": "Echelon",
+    "slug": "echelon",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/EchelonLogo3d.png",
     "scheme": "toothandnail",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,

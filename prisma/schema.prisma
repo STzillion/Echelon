@@ -20,17 +20,65 @@ model User {
   username   String   @unique
   avatar     String?
   created_at DateTime @default(now())
-  posts      Post[]
+
+  posts      Post[]   @relation("User")
+  reposts    Post[]   @relation("RepostUser")
+  likes      Like[]
+
+  // ADD THESE
+  debates_challenging Debate[] @relation("DebateChallenger")
+  debates_opposing    Debate[] @relation("DebateOpponent")
 }
 
 model Post {
-  id         String   @id
+  id               String   @id
+  user_id          String
+  user             User     @relation("User", fields: [user_id], references: [id], onDelete: Cascade)
+  parent_id        String?
+  parent           Post?    @relation(name:"Posts", fields: [parent_id], references: [id], onDelete: Cascade)
+  text             String?
+  file             String?
+  repost_user_id   String?
+  repost_user      User?    @relation("RepostUser",fields: [repost_user_id], references: [id])
+  tag_name         String?
+  created_at       DateTime @default(now())
+  Post             Post[]   @relation("Posts")
+  debate_id        String?
+  debate_side      String?
+  debate           Debate?  @relation("PostToDebate", fields: [debate_id], references: [id])
+  debateRoot       Debate?  @relation("DebateRootPost")
+  likes            Like[]
+  tag_id           String?
+  Tags             Tag?     @relation(fields: [tag_name], references: [name])
+}
+
+model Tag {
+  name       String   @id
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now()) @updatedAt
+  posts      Post[]
+}
+
+model Debate {
+  id              String   @id @default(dbgenerated("uuid_generate_v4()"))
+  root_post_id    String   @unique
+  challenger_id   String
+  opponent_id     String?
+  status          String
+  challenger_text String?
+  created_at      DateTime @default(now())
+
+  root_post       Post     @relation("DebateRootPost", fields: [root_post_id], references: [id], onDelete: Cascade)
+  challenger      User     @relation("DebateChallenger", fields: [challenger_id], references: [id], onDelete: Cascade)
+  opponent        User?    @relation("DebateOpponent", fields: [opponent_id], references: [id], onDelete: Cascade)
+  posts           Post[]   @relation("PostToDebate")
+}
+
+model Like {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()"))
   user_id    String
   user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  parent_id  String?
-  parent     Post?    @relation(name: "Posts", fields: [parent_id], references: [id], onDelete: Cascade)
-  text       String?
-  file       String?
+  post_id    String
+  post       Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
   created_at DateTime @default(now())
-  Post       Post[]   @relation("Posts")
 }

@@ -5,7 +5,7 @@ import { Text } from '@/components/ui/text';
 export default () =>{
   return (
     <SafeAreaView>
-        <Text>Debates</Text>
+        <Text>Debate Activity</Text>
     </SafeAreaView>
   );
 }

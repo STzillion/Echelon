@@ -1,45 +1,29 @@
-import React, { useState } from 'react';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import {
-  View,
-  StyleSheet,
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
-  TouchableWithoutFeedback,
-  Image as RNImage,
-} from 'react-native';
-import { Text } from '@/components/ui/text';
-import { useAuth } from '@/providers/AuthProvider';
 import { Avatar, AvatarImage } from '@/components/ui/avatar';
-import { HStack } from '@/components/ui/hstack';
-import { VStack } from '@/components/ui/vstack';
 import { Button, ButtonText } from '@/components/ui/button';
-import Input from './input';
-import { Images, Camera, Mic, VideoIcon, Hash } from 'lucide-react-native';
-import { supabase } from '@/lib/supabase';
-import { router } from 'expo-router';
-import * as Crypto from 'expo-crypto';
-import { usedPosts } from '@/providers/PostsProvider';
+import { HStack } from '@/components/ui/hstack';
 import { Pressable } from '@/components/ui/pressable';
-import * as ImagePicker from 'expo-image-picker';
+import { Text } from '@/components/ui/text';
+import { VStack } from '@/components/ui/vstack';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/providers/AuthProvider';
+import { Post, usedPosts, Tag } from '@/providers/PostsProvider';
 import { useUploadFile } from '@/providers/uploadfile';
-import { useLocalSearchParams } from 'expo-router';
-import {VideoView, AudioTrack, useVideoPlayer } from 'expo-video';
-import { Post } from '@/providers/PostsProvider';
+import * as Crypto from 'expo-crypto';
+import * as ImagePicker from 'expo-image-picker';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { Camera, Hash, Images, VideoIcon } from 'lucide-react-native';
+import React, { useState } from 'react';
+import { Alert, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, TouchableWithoutFeedback, View, } from 'react-native';
+import ImageWithText from '@/components/ui/image-with-text';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Input from './input';
 
-
-interface PostCallProps {
-  post: Post;
-  updatePost: (post: Post) => void;
-}
-
-
-export default function PostScreen() {
+export default () => {
   const { user } = useAuth();
   const { addPost } = usedPosts();
-
   const [text, setText] = useState('');
+  const {updatePost} = usedPosts();
   //const isImagePostEnabled = useAppStore((state) => state.isImagePostEnabled);
   const [photo, setPhoto] = useState<string>('');          
   const [ImageFilename, setImageFilename] = useState<string | null>(null); 
@@ -47,10 +31,20 @@ export default function PostScreen() {
   const [isUploading, setIsUploading] = useState(false);
   const { cameraPhotoUri } = useLocalSearchParams<{ cameraPhotoUri?: string }>();
   const [video, setVideo] = useState<string>('');
+  const regex = /(#\w+)|(@\w+)|([^#@]+)/g;
+  const textArray = Array.from(text.matchAll(regex), m => m[0]);
 
+
+// Tag creation is handled at submit time to ensure we have the real post id
   const Filetype = photo.endsWith('.mp4') ? 'video/mp4' : 'image/jpeg';
  
-
+  const post: Post = {
+    id: 'temp-id',
+    user_id: (user as any)?.id || '',
+    text,
+    file: '',
+    created_at: new Date().toISOString(),
+  };
  
   const isDisabled = (!text.trim() && !photo && !video) || isUploading;
   
@@ -81,23 +75,23 @@ export default function PostScreen() {
       console.log('Generated name:', VideogeneratedName);
 
 
+      const userId = (user as any)?.id;
+      if (!userId) {
+        Alert.alert('Upload error', 'User not signed in.');
+        setVideo('');
+        setIsUploading(false);
+        return;
+      }
+
       setVideo(videoUri);
       setIsUploading(true);
 
-      console.log(videoUri);
-      console.log(result.assets[0].mimeType);
-      console.log(result.assets[0].duration);
-
-      const uploadVideo = await uploadFile(user?.id,videoUri,  'video/mp4',  VideogeneratedName);
+      const uploadVideo = await uploadFile(userId, videoUri, 'video/mp4', VideogeneratedName);
 
       setIsUploading(false);
 
-      console.log('Uploaded video name:', uploadVideo);
-      console.log('========================');
-
       if (uploadVideo) {
-        const uploadedVideoName = await uploadVideo;
-        setVideoFilename(uploadedVideoName);
+        setVideoFilename(uploadVideo);
       } else {
         setVideo('');
         setVideoFilename(null);
@@ -123,9 +117,16 @@ export default function PostScreen() {
       setPhoto(uri);
 
       
+      const userId = (user as any)?.id;
+      if (!userId) {
+        Alert.alert('Upload error', 'User not signed in.');
+        setPhoto('');
+        setImageFilename(null);
+        return;
+      }
       const generatedName = `${Date.now()}.jpg`;
       const uploadedName = await uploadFile(
-       user?.id,  // First folder = 'public'
+        userId,
         uri,
         type,
         generatedName
@@ -168,18 +169,35 @@ export default function PostScreen() {
      console.log('Will save:', ImageFilename || VideoFilename);
      console.log('=====================');
 
+     console.log({
+        id: post.id,
+        parent_id: post.parent_id,
+        text: post.text,
+        user_id: post.user_id,
+        created_at: post.created_at,
+      });
+
+
     const mediaFile = VideoFilename ?? ImageFilename ?? null;
+    const tagName = textArray.find((t) => t?.startsWith('#')) ?? null;
 
     try {
+      if (tagName) {
+        await supabase.from('Tag').upsert({ name: tagName, updated_at: new Date() }).select();
+      }
+
+      // Inserting post and request the related Tag row
+      
       const { data, error } = await supabase
         .from('Post')
         .insert({
           id: Crypto.randomUUID(),
           user_id: (user as any)?.id,
           text,
-          file: mediaFile, // setting just the filename to the table. I previously had a bug here with the full path
+          file: mediaFile,
+          tag_name: tagName,
         })
-        .select();
+        .select('*, Tag(name)');
 
       if (error) {
         console.error('Post insert error:', error);
@@ -218,6 +236,8 @@ export default function PostScreen() {
   };
 
   const icons = [Images, Camera, VideoIcon, Hash];
+
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -261,11 +281,26 @@ export default function PostScreen() {
                   <Text style={styles.username}>
                     {(user as any)?.username || 'Unknown'}
                   </Text>
-                  <Input post={post} updatePost={updatePost} />
+                  <Input 
+                    value={{
+                      id: 'temp-id',
+                      user_id: (user as any)?.id || '',
+                      text: text,
+                      file: '',
+                      created_at: new Date().toISOString(),
+                    }}
+                    onChange={(id, key, value) => {
+                      if (key === 'text') {
+                        setText(value);
+                      }
+                    }}
+                    textArray={textArray}
+                  />
 
-                  {/* Local preview only */}
+                  {/* Local preview */}
                   {photo ? (
-                    <RNImage
+                    <ImageWithText
+                      textArray={textArray}
                       source={{ uri: photo }}
                       style={{ width: 100, height: 100, borderRadius: 10, marginTop: 8 }}
                     />

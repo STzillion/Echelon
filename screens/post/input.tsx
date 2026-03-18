@@ -1,42 +1,92 @@
-import React from "react";
-import { TextInput } from "react-native";
 import { Text } from "@/components/ui/text";
 import { Post } from "@/providers/PostsProvider";
+import React from "react";
+import { TextInput, View } from "react-native";
 
-const renderText = (text: string) => {
- const regex = /(#\w+)|(@\w+)/g;
- const parts = text?.match(regex);
 
- return(
+
+
+export const renderText = (textArray: string[]) => {
+
+
+  return (
     <Text className="my-2">
-        {parts?.map((part, index) => {
-            if(part.startsWith('#')){
-               const tag = part?.toUpperCase()
-               return (<Text size="md" key={index} className="font-bold">{tag} </Text>
-               )
-            } else{
-                return (<Text size="md" key={index}>{part} </Text>
-                )
-            }
-        })}
-    </Text>
- )}
+      {textArray?.map((part, index) => {
+        if (!part) return null;
 
- export default({post, updatePost}: {post: Post, updatePost: (id: string, text: string, value: string) => void}) => {
-    return(
-        <TextInput
-           className= "text-lg"
-           placeholder="Defend your opinion"
-           multiline={true}
-           value={post.text}
-           onChangeText={(text) => updatePost(post.id, 'text', text)}
-           onContentSizeChange={(e)=> console.log(e.nativeEvent.contentSize.height)}
-           onKeyPress={({nativeEvent})=>{
-            console.log(nativeEvent.key)
-           }}
-        >
-            {renderText(post.text)}
-            <Text>{post?.text}</Text>
-        </TextInput>
-    );
- }
+        if (part?.startsWith("#")) {
+          const tag = part?.toUpperCase()
+          return (
+            <Text style={styles.textIfHash} size="md" key={index}>{tag}</Text>
+          );
+        }
+        else
+          return(
+            <Text style={styles.Text} size="md" key={index}>{part}</Text>
+        );
+      })}
+    </Text>
+  );
+};
+
+export default function Input({ value, onChange, textArray }: { value: Post; onChange: (id: string, key: string, value: string) => void, textArray: string[] }) {
+  return (
+    <>
+          <View style={{ position: 'relative' }}>
+      {/* Styled text layer */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          top: 8,
+          left: 12,
+          right: 12,
+        }}
+      >
+        {renderText(textArray)}
+      </View>
+
+      {/* Real input */}
+      <TextInput
+        style={[
+          styles.TextInput,
+          { color: 'transparent' },
+        ]}
+        placeholder="State your opinion..."
+        placeholderTextColor="gray"
+        multiline
+        value={value.text}
+        onChangeText={(text) => onChange(value.id, 'text', text)}
+      />
+    </View>
+
+    </>
+
+    
+    
+  );
+}
+
+const styles = {
+  TextInput: {
+    color: 'white',
+    fontSize: 14,
+    minHeight: 40,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+   textIfHash: {
+    color: 'white',
+    fontSize: 14,
+    minHeight: 40,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontWeight: 'bold' as const,
+  },
+  Text: {
+    color: 'white',
+    fontSize: 14,
+  },
+};
+
+
