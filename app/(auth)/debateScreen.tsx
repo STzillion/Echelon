@@ -1,2 +1,2 @@
-import Debate from '@/screens/home/debateScreen';
+import Debate from '@/screens/tabs/home/debateScreen';
 export default () => <Debate/>;

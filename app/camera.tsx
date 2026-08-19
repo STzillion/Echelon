@@ -1,2 +1,2 @@
-import Camera from '@/screens/camera';
+import Camera from '@/screens/tabs/camera';
 export default () => <Camera />;

@@ -7,17 +7,19 @@
     "icon": "./assets/images/EchelonLogo3d.png",
     "scheme": "toothandnail",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourcompany.toothandnail"
+      "bundleIdentifier": "com.yourcompany.toothandnail",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
       "intentFilters": [
         {
           "action": "VIEW",
@@ -30,14 +32,21 @@
           ]
         }
       ],
-      "package": "com.yourcompany.toothandnail"
+      "package": "com.yourcompany.toothandnail",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ]
     },
     "web": {
       "bundler": "metro",
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
-    "plugins": [
+      "plugins": [
       "expo-router",
       [
         "expo-camera",
@@ -65,6 +74,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "8b574cff-1c35-4c77-98e8-37423d846248"
+      }
+    },
+    "owner": "stzillion"
   }
 }

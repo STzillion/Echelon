@@ -7,6 +7,7 @@ import 'react-native-reanimated';
 import { AuthProvider } from '@/providers/AuthProvider';
 import { PostsProvider } from '@/providers/PostsProvider';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { S } from '@expo/html-elements';
 
 
 
@@ -31,6 +32,7 @@ export default function RootLayout() {
               <Stack.Screen name="(auth)" options={{ headerShown: false}} />
               <Stack.Screen name="post" options={{ headerShown: false, presentation:'modal' }} />
               <Stack.Screen name="camera" options={{ headerShown: false, presentation:'modal' }} />
+              <Stack.Screen name="user" />
               <Stack.Screen name="+not-found" />
             </Stack>
           </PostsProvider>

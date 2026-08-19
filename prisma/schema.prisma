@@ -22,7 +22,7 @@ model User {
   created_at DateTime @default(now())
 
   posts      Post[]   @relation("User")
-  reposts    Post[]   @relation("RepostUser")
+  reposts    Repost[]   @relation("RepostUser")
   likes      Like[]
 
   // ADD THESE
@@ -43,6 +43,7 @@ model Post {
   tag_name         String?
   created_at       DateTime @default(now())
   Post             Post[]   @relation("Posts")
+  reposts          Repost[]
   debate_id        String?
   debate_side      String?
   debate           Debate?  @relation("PostToDebate", fields: [debate_id], references: [id])
@@ -75,10 +76,29 @@ model Debate {
 }
 
 model Like {
-  id         String   @id @default(dbgenerated("uuid_generate_v4()"))
-  user_id    String
-  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  post_id    String
-  post       Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
-  created_at DateTime @default(now())
+  id                    String   @id @default(dbgenerated("uuid_generate_v4()"))
+  user_id               String
+  user                  User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  post_id               String
+  post                  Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  post_text             String?
+  user_username         String?
+  created_at DateTime   @default(now())
+}
+
+
+model Repost {
+  id            String   @id @default(dbgenerated("uuid_generate_v4()"))
+  user_id       String
+  post_id       String
+  created_at    DateTime @default(now())
+
+  user          User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  post          Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
+
+
+  post_text     String?
+  user_username String?
+
+  @@unique([user_id, post_id])
 }

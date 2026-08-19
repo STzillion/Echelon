@@ -1,12 +1,13 @@
 import { Avatar, AvatarImage } from '@/components/ui/avatar';
 import { Button, ButtonText } from '@/components/ui/button';
 import { HStack } from '@/components/ui/hstack';
+import ImageWithText from '@/components/ui/image-with-text';
 import { Pressable } from '@/components/ui/pressable';
 import { Text } from '@/components/ui/text';
 import { VStack } from '@/components/ui/vstack';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/providers/AuthProvider';
-import { Post, usedPosts, Tag } from '@/providers/PostsProvider';
+import { Post, usedPosts } from '@/providers/PostsProvider';
 import { useUploadFile } from '@/providers/uploadfile';
 import * as Crypto from 'expo-crypto';
 import * as ImagePicker from 'expo-image-picker';
@@ -15,7 +16,6 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { Camera, Hash, Images, VideoIcon } from 'lucide-react-native';
 import React, { useState } from 'react';
 import { Alert, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, TouchableWithoutFeedback, View, } from 'react-native';
-import ImageWithText from '@/components/ui/image-with-text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Input from './input';
 
@@ -29,14 +29,14 @@ export default () => {
   const [ImageFilename, setImageFilename] = useState<string | null>(null); 
   const [VideoFilename, setVideoFilename] = useState<string | null>(null); 
   const [isUploading, setIsUploading] = useState(false);
+  const [isDebate, setIsDebate] = useState(false);
   const { cameraPhotoUri } = useLocalSearchParams<{ cameraPhotoUri?: string }>();
   const [video, setVideo] = useState<string>('');
   const regex = /(#\w+)|(@\w+)|([^#@]+)/g;
   const textArray = Array.from(text.matchAll(regex), m => m[0]);
 
 
-// Tag creation is handled at submit time to ensure we have the real post id
-  const Filetype = photo.endsWith('.mp4') ? 'video/mp4' : 'image/jpeg';
+
  
   const post: Post = {
     id: 'temp-id',
@@ -160,7 +160,9 @@ export default () => {
     };
   }
 
-  const onPress = async () => {
+  const submitPost = async (type: boolean) => {
+    setIsDebate(type);
+
     if (!user) return;
 
      console.log('=== BEFORE INSERT ===');
@@ -196,6 +198,7 @@ export default () => {
           text,
           file: mediaFile,
           tag_name: tagName,
+          debate_side: type ? 'root' : null,
         })
         .select('*, Tag(name)');
 
@@ -219,6 +222,8 @@ export default () => {
         
         const postWithUser = {
           ...data[0],
+          isDebate: type,
+          debate_side: type ? 'root' : null,
           user:
             userData || {
               id: (user as any)?.id,
@@ -233,6 +238,29 @@ export default () => {
     } catch (err) {
       console.error('onPress error:', err);
     }
+  };
+
+  const handlePostTypeSelection = () => {
+    if (isDisabled || isUploading) return;
+
+    Alert.alert(
+      'Post type',
+      'Do you want to post a debate or a regular post?',
+      [
+        {
+          text: 'Regular post',
+          onPress: () => submitPost(false),
+        },
+        {
+          text: 'Debate',
+          onPress: () => submitPost(true),
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ]
+    );
   };
 
   const icons = [Images, Camera, VideoIcon, Hash];
@@ -333,7 +361,7 @@ export default () => {
               <Text style={styles.replyInfo}>Anyone can reply & debate</Text>
               <Button
                 style={[styles.postButton, { opacity: isDisabled ? 0.3 : 1 }]}
-                onPress={onPress}
+                onPress={handlePostTypeSelection}
                 disabled={isDisabled || isUploading}
               >
                 <ButtonText>{isUploading ? 'Uploading...' : 'Post'}</ButtonText>

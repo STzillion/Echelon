@@ -1,10 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
-import { useIsFetching } from '@tanstack/react-query';
 import { Post } from '@/providers/PostsProvider';
- import { useIsMutating, useMutationState } from '@tanstack/react-query';
-  import { useMutation } from '@tanstack/react-query';
-  import { mutationOptions } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 export const getPosts = async (): Promise<Post[]> => {
   const { data, error } = await supabase
@@ -23,9 +19,24 @@ export const getPosts = async (): Promise<Post[]> => {
 
 
 export const usePosts = () => {
+  const queryClient = useQueryClient();
   const { data, isLoading, error, refetch } = useQuery<Post[], Error>({
     queryKey: ['posts'],
     queryFn: () => getPosts(),
+    select: (posts) => {
+      const previousPosts = queryClient.getQueryData<Post[]>(['posts']);
+      if (!previousPosts?.length) return posts;
+
+      const previousMap = new Map(previousPosts.map((post) => [post.id, post]));
+
+      return posts.map((post) => {
+        const previousPost = previousMap.get(post.id);
+        if (previousPost?.isDebate != null) {
+          return { ...post, isDebate: previousPost.isDebate };
+        }
+        return post;
+      });
+    },
   });
 
   return { data, isLoading, error, refetch };

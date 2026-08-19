@@ -1,2 +1,2 @@
-import Home from '@/screens/home';
+import Home from '@/screens/tabs/home';
 export default () => <Home />;

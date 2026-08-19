@@ -1,8 +1,7 @@
 
-import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/providers/AuthProvider';
-import React from 'react';
+import React, { useState } from 'react';
 import { Post } from './PostsProvider';
 
 export function useUploadFile() {
@@ -21,9 +20,15 @@ export function useUploadFile() {
       const res = await fetch(uri);
       const arrayBuffer = await res.arrayBuffer();
 
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const authUid = authUser?.id;
+
       const path = `${id}/${name}`;
       console.log('=== UPLOAD DEBUG ===');
       console.log('Uploading to path:', path);
+      console.log('ID passed:', id);
+      console.log('Auth UID from Supabase:', authUid);
+      console.log('IDs match?', id === authUid);
       console.log('Bucket: files');
       console.log('Content type:', type);
       console.log('====================');

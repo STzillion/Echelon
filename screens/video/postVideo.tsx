@@ -1,8 +1,6 @@
 import { VideoView, useVideoPlayer } from 'expo-video';
-import { useEffect, useRef, useState } from 'react';
-import { View, Pressable, StyleSheet } from 'react-native';
-import { Volume2, VolumeX } from 'lucide-react-native';
-import type { ViewToken } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 interface SocialVideoPlayerProps {
   uri: string;
@@ -28,11 +26,11 @@ export function PostVideo({ uri, isVisible }: SocialVideoPlayerProps) {
   }, [isVisible]);
 
   useEffect(() => {
-    const sub = player.addListener('statusChange', (status) => {
-      if (status.status === 'ready' && status.videoSize) {
-        const { width, height } = status.videoSize;
-        if (width && height) {
-          setAspectRatio(width / height);
+    const sub = player.addListener('statusChange', (payload) => {
+      if (payload.status === 'readyToPlay') {
+        const size = player.videoTrack?.size;
+        if (size?.width && size?.height) {
+          setAspectRatio(size.width / size.height);
         }
       }
     });
@@ -67,7 +65,6 @@ export function PostVideo({ uri, isVisible }: SocialVideoPlayerProps) {
           style={getVideoStyle(aspectRatio)}
           contentFit="contain"
           nativeControls={showControls}
-          allowsFullscreen
         />
       </Pressable>
 

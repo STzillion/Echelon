@@ -1,8 +1,7 @@
-import React from "react";
 import { supabase } from "@/lib/supabase";
 import { Session } from "@supabase/supabase-js";
 import { router } from "expo-router";
-import { LogOut } from "lucide-react-native";
+import React from "react";
 
 export const AuthContext = React.createContext({
     user: {},
@@ -71,7 +70,7 @@ const routeBySession = async (session: Session | null) => {
   
   const { data, error } = await supabase
     .from('User')
-    .select('id, username')
+    .select('id, username, avatar')
     .eq('id', session.user.id)
     .maybeSingle();
 

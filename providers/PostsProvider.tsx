@@ -3,7 +3,6 @@ import { supabase } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
 import React, { createContext, useContext } from 'react';
 import { useAuth } from './AuthProvider';
-import * as Crypto from 'expo-crypto';
 
 export type Post = {
   id: string;
@@ -13,12 +12,10 @@ export type Post = {
   file: string;
   created_at: string;
   tag_name?: string | null;
+  debate_side?: string | null;
   repost_user_id?: string | null;
-  user?: {
-    id: string;
-    username: string;
-    avatar?: string;
-  };
+  isDebate?: boolean | null;
+  user?: User;
   repost_user?: {
     id: string;
     username: string;
@@ -26,6 +23,11 @@ export type Post = {
   };
   Post?: Post[]; //for replies
   likes?: { user_id: string }[]; // added to support like state
+};
+export type User = {
+  id: string;
+  username: string;
+  avatar?: string;
 };
 
 export type Tag = {

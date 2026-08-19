@@ -1,2 +1,2 @@
-import Topics from '@/screens/topics';
+import Topics from '@/screens/tabs/topics';
 export default () => <Topics />;

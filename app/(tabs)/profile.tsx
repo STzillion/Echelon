@@ -1,2 +1,2 @@
-import Profile from '@/screens/profile';
+import Profile from '@/screens/tabs/profile';
 export default () => <Profile />;

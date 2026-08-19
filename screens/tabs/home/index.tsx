@@ -1,21 +1,18 @@
 // Helper to format time difference
 
-import React from 'react';
-import {Pressable, RefreshControl, ScrollView} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Avatar, AvatarImage } from '@/components/ui/avatar';
 import { Text } from '@/components/ui/text';
-import { useAuth } from '@/providers/AuthProvider';
-import { View, Image, StyleSheet, TouchableOpacity } from 'react-native';
-import { Avatar, AvatarFallbackText, AvatarImage, AvatarBadge } from '@/components/ui/avatar';
-import { Heart, MessageCircle, Repeat, ScanEye, Swords } from 'lucide-react-native';
-import { usedPosts } from '@/providers/PostsProvider';
-import { PostVideo } from '../video/postVideo';
 import { supabase } from '@/lib/supabase';
-import * as Haptics from 'expo-haptics';
-import { Post } from '@/providers/PostsProvider';
-import { router } from 'expo-router';
+import { useAuth } from '@/providers/AuthProvider';
+import { Post, usedPosts } from '@/providers/PostsProvider';
 import * as Crypto from 'expo-crypto';
-import { HStack } from '@/components/ui/hstack';
+import * as Haptics from 'expo-haptics';
+import { router, useFocusEffect } from 'expo-router';
+import { EyeIcon, Heart, MessageCircle, Repeat, Swords, VoteIcon } from 'lucide-react-native';
+import React from 'react';
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { PostVideo } from '../../video/postVideo';
 
 
 
@@ -43,15 +40,20 @@ function timeAgo(dateString: string) {
 }
 
 
-export default function HomeScreen(post: Post) {
+export default function HomeScreen() {
   const { user } = useAuth();
   const currentUser = user as any;
   const { posts, refetch } = usedPosts();
   const [debates, setDebates] = React.useState<any[]>([]);
   const [refreshing, setRefreshing] = React.useState(false);
+  const Image_Url = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/`;
+  
 
 
   const BUCKET = 'post-images'; 
+
+ 
+  
 
   
   
@@ -66,6 +68,7 @@ export default function HomeScreen(post: Post) {
      const { data, error } = await supabase.from('Like').insert({
        user_id: currentUser?.id,
        post_id: postId,
+       post_text: posts?.find(p => p.id === postId)?.text || '', 
      });
      if (error) {
        console.log('Error adding like:', error);
@@ -128,6 +131,23 @@ const RemoveRepost = async (orig: Post) => {
       .select('user_id')
       .eq('post_id', orig.id);
 
+    const {data: originalReposts, error: repostsError} = await supabase
+      .from('Post')
+      .select('id')
+      .eq('parent_id', orig.id);
+
+
+    if(!repostsError && originalReposts?.length){
+      const clonedReposts = originalReposts.map((repost: { id: string }) => ({
+        user_id: orig.user_id,
+        parent_id: newPostId,
+      }));
+      const { error: cloneRepostsError } = await supabase.from('Post').insert(clonedReposts);
+      if(cloneRepostsError){
+        console.error('Error copying reposts to new repost:', cloneRepostsError);
+      }
+    }
+
     if (!likeError && originalLikes?.length) {
       const clonedLikes = originalLikes.map((like: { user_id: string }) => ({
         user_id: like.user_id,
@@ -145,8 +165,8 @@ const RemoveRepost = async (orig: Post) => {
   }
 };
 
-  React.useEffect(() => {
-    const loadDebates = async () => {
+ 
+  const loadDebates = async () => {
       try {
         const { data, error } = await supabase
           .from('Debate')
@@ -161,7 +181,7 @@ const RemoveRepost = async (orig: Post) => {
       }
     };
     loadDebates();
-  }, []);
+
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
@@ -176,6 +196,13 @@ const RemoveRepost = async (orig: Post) => {
       setRefreshing(false);
     }
   }, [refetch]);
+
+  useFocusEffect(
+  React.useCallback(() => {
+    loadDebates();   
+    refetch();       
+  }, [])
+);
 
   const regex = /(#\w+)|(@\w+)|([^#@]+)/g;
 
@@ -242,15 +269,24 @@ const RemoveRepost = async (orig: Post) => {
         {(feedPosts ?? []).map((post, idx) => {
           const isLiked = post?.likes?.some((like: { user_id: string}) => like.user_id === currentUser?.id);
           const repostCount = (posts ?? []).filter(p => p.parent_id === post.id).length;
+          // For reposts, check the original post's debate; otherwise check current post
+          const originalPostId = post.parent_id || post.id;
+          const hasExistingDebate = debates.some(d => d.root_post_id === originalPostId);
+          const isSelectedAsDebate = Boolean(post.isDebate) || post.debate_side === 'root';
+          const ifNotDebate = !hasExistingDebate;
           const isReposted = (posts ?? []).some(
             p => p.parent_id === post.id && p.repost_user_id === currentUser?.id
           );
+          // Get the original post for debate display
+          const originalPost = post.parent_id ? posts?.find(p => p.id === post.parent_id) : post;
+          const isPostOwner = originalPost?.user_id === currentUser?.id;
+            const imageUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user?.id}/${post.user?.avatar}`;
           return (
           <React.Fragment key={post.id}>
             <View style={styles.postCard}>
               {post.user?.avatar ? (
                 <Avatar size="md" style={styles.avatar}>
-                  <AvatarImage source={{ uri: post.user?.avatar }} />
+                  <AvatarImage source={{ uri: imageUrl }} />
                 </Avatar>
               ) : (
                 <View style={styles.grayCircleAvatar}>
@@ -260,113 +296,155 @@ const RemoveRepost = async (orig: Post) => {
               <View style={styles.postContent}>
                 {/* if this post is a repost, show who reposted it */}
                 
-                        {post.repost_user && (
+                {post.repost_user && (
                   <View style={styles.repostInfoRow}>
-                    <Repeat size={14} color="#aaa" strokeWidth={2} />
+                    <Repeat size={16} color="#aaa" strokeWidth={2} />
                     <Text style={styles.repostInfo}>
-                      Reposted by {post.repost_user.username}
+                      Reposted by 
                     </Text>
+                    <Pressable onPress = {() => router.push(
+                      {pathname: `/user`, 
+                      params: { userId: post.repost_user_id } 
+                      })}>
+                      <Text style={styles.repostInfo}>
+                        {post.repost_user.username}
+                      </Text>
+                    </Pressable>
                   </View>
                 )}
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
-                  <Text style={[styles.username, { marginLeft: 0 }]}>{post.user?.username || (user as any)?.username}</Text>
-                  <Text style={{ fontSize: 12, color: '#888', marginLeft: 4 }}>
-                    {timeAgo(post.created_at)}
-                  </Text>
+                <Pressable onPress = {() => router.push(
+                  {pathname: `/user`, 
+                  params: { userId: post.user_id }
+                  })}>
+
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+                    <Text style={styles.usernameNoMargin}>{post.user?.username || (user as any)?.username}</Text>
+                    <Text style={{ fontSize: 12, color: '#888', marginLeft: 4 }}>
+                      {timeAgo(post.created_at)}
+                    </Text>
                 </View>
-                {!debates.some(d => d.root_post_id === post.id) && renderPostText(post.text)}
-                  {debates
-                      .filter((d) => d.root_post_id === post.id)
-                      .map((debate) => (
-                        <View key={debate.id} style={{ marginTop: 8 }}>
+                </Pressable>
+                
+               {(ifNotDebate) && (
+                  <View>
+                    {renderPostText(post.text)}
+                      {post.file && post.file.endsWith('.mp4') ? (
+                                    <PostVideo 
+                                      uri={`${Image_Url}${post.user_id}/${post.file}`}
+                                      isVisible={!!post.file}
+                                    />
+                                  ) : (
+                                    <Image
+                                      source={{ uri: `${Image_Url}${post.user_id}/${post.file}` }}
+                                      style={{ 
+                                        width: !!post.file ? '100%' : 0, 
+                                        height: !!post.file ? 200 : 0, 
+                                        borderRadius: !!post.file ? 10 : 0, 
+                                        marginTop: !!post.file ? 8 : 0 
+                                      }}
+                                    />
+                                  )}
+                                  
+                  </View>
+               )}
+                {debates.filter((d) => d.root_post_id === originalPostId).map((debate) => (
+                      <View key={debate.id} style={{ marginTop: 8 }}>
 
-                          {/* ORIGINAL ARGUMENT */}
-                          <View style={styles.argumentBox}>
-                            <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                              
-                              {post.user?.avatar ? (
-                                <Avatar size="md" style={styles.avatar}>
-                                  <AvatarImage source={{ uri: post.user.avatar }} />
-                                </Avatar>
-                              ) : (
-                                <View style={styles.grayCircleAvatar}>
-                                  <Text style={styles.grayCircleText}>
-                                    {post.user?.username?.[0]?.toUpperCase() || '?'}
-                                  </Text>
-                                </View>
-                              )}
-
-                              <View style={{ flex: 1 }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                  <Text style={styles.username}>{post.user?.username}</Text>
-                                  <Text style={{ fontSize: 12, color: '#888', marginLeft: 4 }}>
-                                    {timeAgo(post.created_at)}
-                                  </Text>
-                                </View>
-
-                                {renderPostText(post.text)}
-                              </View>
-
-                            </View>
-                          </View>
-
-                          {/* VS */}
-                          <Text style={{
-                            color: '#888',
-                            textAlign: 'center',
-                            marginVertical: 6,
-                            fontSize: 12
-                          }}>
-                            ──── VS ────
-                          </Text>
-
-                          {/* COUNTER ARGUMENT */}
-                          <View style={styles.argumentBox}>
-                            <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                              
-                              {debate.challenger?.avatar ? (
-                                <Avatar size="md" style={styles.avatar}>
-                                  <AvatarImage source={{ uri: debate.challenger.avatar }} />
-                                </Avatar>
-                              ) : (
-                                <View style={styles.grayCircleAvatar}>
-                                  <Text style={styles.grayCircleText}>
-                                    {debate.challenger?.username?.[0]?.toUpperCase() || '?'}
-                                  </Text>
-                                </View>
-                              )}
-
-                              <View style={{ flex: 1 }}>
-                                <Text style={styles.username}>
-                                  {debate.challenger?.username}
+                        {/* ORIGINAL ARGUMENT */}
+                        <View style={styles.argumentBox}>
+                          <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                            
+                            {originalPost?.user?.avatar ? (
+                              <Avatar size="md" style={styles.avatar}>
+                                <AvatarImage source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${originalPost.user.id}/${originalPost.user.avatar}` }} />
+                              </Avatar>
+                            ) : (
+                              <View style={styles.grayCircleAvatar}>
+                                <Text style={styles.grayCircleText}>
+                                  {originalPost?.user?.username?.[0]?.toUpperCase() || '?'}
                                 </Text>
+                              </View>
+                            )}
 
-                                {renderPostText(debate.challenger_text)}
+                            <View style={{ flex: 1 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Text style={styles.username}>{originalPost?.user?.username}</Text>
+                                <Text style={{ fontSize: 12, color: '#888', marginLeft: 4 }}>
+                                  {timeAgo(originalPost?.created_at || '')}
+                                </Text>
                               </View>
 
-                            </View>
-                          </View>
+                              {renderPostText(originalPost?.text)}
 
+                                {originalPost?.file && originalPost.file.endsWith('.mp4') ? (
+                                  <PostVideo 
+                                    uri={`${Image_Url}${originalPost.user_id}/${originalPost.file}`}
+                                    isVisible={!!originalPost.file}
+                                  />
+                                ) : (
+                                  <Image
+                                    source={{ uri: `${Image_Url}${originalPost?.user_id}/${originalPost?.file}` }}
+                                    style={{ 
+                                      width: !!originalPost?.file ? '100%' : 0, 
+                                      height: !!originalPost?.file ? 200 : 0, 
+                                      borderRadius: !!originalPost?.file ? 10 : 0, 
+                                      marginTop: !!originalPost?.file ? 8 : 0 
+                                    }}
+                                  />
+                                )}
+                            </View>
+
+                          </View>
                         </View>
-                    ))}
+
+                        
+
+                        {/* VS */}
+                        <Text style={{
+                          color: '#888',
+                          textAlign: 'center',
+                          marginVertical: 6,
+                          fontSize: 12
+                        }}>
+                          ──── VS ────
+                        </Text>
+
+                        {/* COUNTER ARGUMENT */}
+                        <View style={styles.argumentBox}>
+                          <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                            
+                            {debate.challenger?.avatar ? (
+                              <Avatar size="md" style={styles.avatar}>
+                                <AvatarImage source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${debate.challenger?.id}/${debate.challenger?.avatar}` }} />
+                              </Avatar>
+                            ) : (
+                              <View style={styles.grayCircleAvatar}>
+                                <Text style={styles.grayCircleText}>
+                                  {debate.challenger?.username?.[0]?.toUpperCase() || '?'}
+                                </Text>
+                              </View>
+                            )}
+
+                            <View style={{ flex: 1 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Text style={styles.username}>{debate.challenger?.username}</Text>
+                                <Text style={{ fontSize: 12, color: '#888', marginLeft: 4 }}>
+                                  {timeAgo(debate?.created_at)}
+                                </Text>
+                              </View>
+                              {renderPostText(debate.challenger_text)}
+                            </View>
+
+                          </View>
+                        </View>
+
+                      </View>
+                  ))}
+
+
+                  
 
               
-              {post.file && post.file.endsWith('.mp4') ? (
-                <PostVideo 
-                  uri={`${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}`}
-                  isVisible={!!post.file}
-                />
-              ) : (
-                <Image
-                  source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}` }}
-                  style={{ 
-                    width: !!post.file ? '100%' : 0, 
-                    height: !!post.file ? 200 : 0, 
-                    borderRadius: !!post.file ? 10 : 0, 
-                    marginTop: !!post.file ? 8 : 0 
-                  }}
-                />
-              )}
                {/**/}
               <View style={styles.actionsRow}>
                   <View style={styles.likeGroup}>
@@ -384,36 +462,92 @@ const RemoveRepost = async (orig: Post) => {
                   <Pressable style={styles.actionIcon}>
                     <MessageCircle size={20} color="#b0b0b0" />
                   </Pressable>
+
+               
                   <View style={styles.repostGroup}>
-                    <Pressable
-                      onPress={() =>
-                        isReposted ? RemoveRepost(post) : addRepost(post)
-                      }
-                      style={styles.actionIcon}
-                    >
-                      <Repeat
-                        size={20}
-                        color={isReposted ? 'cyan' : '#b0b0b0'}
-                      />
-                    </Pressable>
-                    {repostCount > 0 && (
-                      <Text style={styles.repostCount}>{repostCount}</Text>
-                    )}
-                  </View>
                   <Pressable
-                    style={styles.actionIconDebateButton}
                     onPress={() =>
-                      router.push({
-                        pathname: '/debateScreen',
-                        params: { postId: post.id },
-                      })
+                      
+                      isReposted ? RemoveRepost(post) : addRepost(post)
+                      //
                     }
+                    style={styles.actionIcon}
                   >
-                    <View style={styles.buttonContent}>
-                      <Swords size={16} color="#b0b0b0" />
-                      <Text style={styles.buttonText}>Debate</Text>
-                    </View>
+                    <Repeat
+                      size={20}
+                      color={isReposted ? 'cyan' : '#b0b0b0'}
+                    />
                   </Pressable>
+                  {repostCount > 0 && (
+                    <Text style={styles.repostCount}>{repostCount}</Text>
+                  )}
+                </View>
+                 
+                  
+                  
+                  {hasExistingDebate ? (
+                    <Pressable
+                      style={styles.actionIconDebateButton}
+                      onPress={() =>
+                        router.push({
+                          pathname: '/debateScreen',
+                          params: { postId: originalPostId },
+                        })
+                      }
+                    >
+                      <View style={styles.buttonContent}>
+                        <VoteIcon size={16} color="#b0b0b0" />
+                        <Text style={styles.buttonText}>Vote</Text>
+                      </View>
+                    </Pressable>
+                  ) : isSelectedAsDebate === true ? (
+                    isPostOwner ? (
+                      <Pressable
+                        style={styles.actionIconDebateButton}
+                        onPress={() =>
+                          router.push({
+                            pathname: '/debateScreen',
+                            params: { postId: originalPostId },
+                          })
+                        }
+                      >
+                        <View style={styles.buttonContent}>
+                          <VoteIcon size={16} color="#b0b0b0" />
+                          <Text style={styles.buttonText}>Vote</Text>
+                        </View>
+                      </Pressable>
+                    ) : (
+                      <Pressable
+                        style={styles.actionIconDebateButton}
+                        onPress={() =>
+                          router.push({
+                            pathname: '/debateScreen',
+                            params: { postId: originalPostId },
+                          })
+                        }
+                      >
+                        <View style={styles.buttonContent}>
+                          <Swords size={16} color="#b0b0b0" />
+                          <Text style={styles.buttonText}>Debate</Text>
+                        </View>
+                      </Pressable>
+                    )
+                  ) : (
+                    <Pressable
+                      style={styles.actionIconDebateButton}
+                      onPress={() =>
+                        router.push({
+                          pathname: '/debateScreen',
+                          params: { postId: originalPostId },
+                        })
+                      }
+                    >
+                      <View style={styles.buttonContent}>
+                        <EyeIcon size={16} color="#b0b0b0" />
+                        <Text style={styles.buttonText}>View</Text>
+                      </View>
+                    </Pressable>
+                  )}
                 </View>
               </View>
             </View>
@@ -433,14 +567,20 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0f0f0f',
   },
+  usernameNoMargin: {
+  marginLeft: 0,
+  color: 'white',
+  fontWeight: '500',
+  fontSize: 14.5,
+},
  argumentBox: {
-  backgroundColor: '#13212f', // slightly different
+  backgroundColor: '#181818', // slightly different
   borderRadius: 12,
   padding: 10,
   marginTop: 8,
 
-  borderWidth: 1,
-  borderColor: '#262626', // THIS is what makes it visible
+  borderWidth: 0.5,
+  borderColor: '#343232', // 
 },
 
   actionIcon: {
@@ -465,6 +605,7 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#b0b0b0',
     fontSize: 11,
+    fontWeight: '700',
   },
   header: {
      flexDirection: 'row',
@@ -501,7 +642,14 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   avatar: {
-    marginRight: 15,
+    width: 35,
+    height: 35,
+    borderRadius: 20,
+    backgroundColor: '#444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    marginTop: 2,
   },
   postContent: {
     flex: 1,
@@ -584,7 +732,7 @@ const styles = StyleSheet.create({
   },
   repostInfo: {
     color: '#aaa',
-    fontSize: 12,
+    fontSize: 14,
     marginLeft: 4,
     marginRight: 4,
   },
@@ -618,13 +766,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   debateVs: {
-    color: '#8ea5ef',
+    color: '#202124',
     fontWeight: '800',
     marginHorizontal: 4,
   },
   debateStatus: {
     marginTop: 4,
-    color: '#9cb4ff',
+    color: '#272829',
     fontSize: 11,
     textAlign: 'center',
   },
