@@ -1,5 +1,5 @@
 "use client";
-import { Avatar, AvatarBadge, AvatarFallbackText, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarBadge, AvatarFallbackText } from '@/components/ui/avatar';
 import { Text } from '@/components/ui/text';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/providers/AuthProvider';
@@ -8,7 +8,7 @@ import { useUploadFile } from '@/providers/uploadfile';
 import * as Crypto from 'expo-crypto';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 
@@ -26,12 +26,25 @@ type TabKey = (typeof tabs)[number]['key'];
 
 export default ({ user }: { user?: User }) => {
   const [activeTab, setActiveTab] = React.useState<TabKey>('opinions');
-  const { logOut, user: authUser } = useAuth() as any;
+  const { logOut, user: authUser, setUser } = useAuth() as any;
   const [photo, setPhoto] = React.useState<string | null>(null);
   const [ImageFilename, setImageFilename] = useState<string | null>(null); 
   const uploadFile = useUploadFile().uploadFile;
   const isOwnProfile = Boolean(user?.id) && authUser?.id === user?.id;
-  const imageUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${user?.id}/${user?.avatar}`;
+  const avatarName = ImageFilename ?? user?.avatar;
+  const imageUrl = avatarName
+    ? `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${user?.id}/${avatarName}`
+    : undefined;
+
+  React.useEffect(() => {
+    if (!imageUrl) return;
+    // gluestack's AvatarImage swallows onError, so probe the URL directly here instead.
+    fetch(imageUrl).then((res) => {
+      console.log('Avatar URL check:', imageUrl, 'status:', res.status);
+    }).catch((err) => {
+      console.log('Avatar URL fetch failed:', imageUrl, err);
+    });
+  }, [imageUrl]);
 
   const handleLogout = async () => {
     try {
@@ -77,7 +90,30 @@ export default ({ user }: { user?: User }) => {
   
   
         if (uploadedName) {
+          const { data: updateData, error: updateError } = await supabase
+            .from('User')
+            .update({ avatar: uploadedName })
+            .eq('id', userId)
+            .select('id, avatar');
+
+          if (updateError) {
+            console.log('Failed to save avatar reference:', updateError);
+            Alert.alert('Upload error', 'Failed to save avatar.');
+            setPhoto('');
+            return;
+          }
+
+          if (!updateData || updateData.length === 0) {
+            // RLS silently blocked the update (no error thrown, but 0 rows affected).
+            console.log('Avatar DB update affected 0 rows — likely blocked by RLS on User table.');
+            Alert.alert('Upload error', 'Avatar saved to storage but could not update your profile (permission denied).');
+            setPhoto('');
+            return;
+          }
+
+          console.log('Avatar DB update succeeded:', updateData);
           setImageFilename(uploadedName);
+          setUser?.((prev: any) => ({ ...prev, avatar: uploadedName }));
         } else {
           Alert.alert('Upload error', 'Failed to upload image.');
           setPhoto('');
@@ -106,7 +142,13 @@ export default ({ user }: { user?: User }) => {
                 <AvatarFallbackText>
                   {user?.username ? user.username[0]?.toUpperCase() : ''}
                 </AvatarFallbackText>
-                <AvatarImage source={{ uri: imageUrl}} />
+                {imageUrl ? (
+                  <Image
+                    source={{ uri: imageUrl }}
+                    style={styles.avatarImage}
+                    onError={(e) => console.log('Avatar load failed:', imageUrl, e.nativeEvent)}
+                  />
+                ) : null}
               </Avatar>
             </Pressable>
           </View>
@@ -244,6 +286,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: '#050505',
+  },
+  avatarImage: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+    borderRadius: 9999,
   },
   avatarBadge: {
     width: 36,

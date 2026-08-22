@@ -15,7 +15,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Camera, Hash, Images, VideoIcon } from 'lucide-react-native';
 import React, { useState } from 'react';
-import { Alert, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, TouchableWithoutFeedback, View, } from 'react-native';
+import { Alert, Image, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, TouchableWithoutFeedback, View, } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Input from './input';
 
@@ -293,17 +293,19 @@ export default () => {
             {/* Main content */}
             <VStack style={styles.body}>
               <HStack style={styles.composeRow}>
-                <Avatar size="md" style={styles.avatarMarginTop}>
-                  {(user as any)?.avatar ? (
-                    <AvatarImage source={{ uri: (user as any)?.avatar }} />
-                  ) : (
-                    <View style={styles.grayCircleAvatar}>
-                      <Text style={styles.grayCircleText}>
-                        {(user as any)?.username?.[0]?.toUpperCase() || '?'}
-                      </Text>
-                    </View>
-                  )}
-                </Avatar>
+                {(user as any)?.avatar ? (
+                  <Image
+                    source={{ uri: (user as any)?.avatar }}
+                    style={[styles.grayCircleAvatar, styles.avatarMarginTop]}
+                    onError={(e) => console.log('Avatar load failed:', (user as any)?.avatar, e.nativeEvent)}
+                  />
+                ) : (
+                  <View style={[styles.grayCircleAvatar, styles.avatarMarginTop]}>
+                    <Text style={styles.grayCircleText}>
+                      {(user as any)?.username?.[0]?.toUpperCase() || '?'}
+                    </Text>
+                  </View>
+                )}
 
                 <VStack style={styles.inputArea}>
                   <Text style={styles.username}>

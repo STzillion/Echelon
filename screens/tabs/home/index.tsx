@@ -1,6 +1,5 @@
 // Helper to format time difference
 
-import { Avatar, AvatarImage } from '@/components/ui/avatar';
 import { Text } from '@/components/ui/text';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/providers/AuthProvider';
@@ -279,15 +278,16 @@ const RemoveRepost = async (orig: Post) => {
           );
           // Get the original post for debate display
           const originalPost = post.parent_id ? posts?.find(p => p.id === post.parent_id) : post;
-          const isPostOwner = originalPost?.user_id === currentUser?.id;
             const imageUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user?.id}/${post.user?.avatar}`;
           return (
           <React.Fragment key={post.id}>
             <View style={styles.postCard}>
               {post.user?.avatar ? (
-                <Avatar size="md" style={styles.avatar}>
-                  <AvatarImage source={{ uri: imageUrl }} />
-                </Avatar>
+                <Image
+                  source={{ uri: imageUrl }}
+                  style={styles.avatar}
+                  onError={(e) => console.log('Avatar load failed:', imageUrl, e.nativeEvent)}
+                />
               ) : (
                 <View style={styles.grayCircleAvatar}>
                   <Text style={styles.grayCircleText}>{post.user?.username?.[0]?.toUpperCase() || '?'}</Text>
@@ -355,9 +355,11 @@ const RemoveRepost = async (orig: Post) => {
                           <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
                             
                             {originalPost?.user?.avatar ? (
-                              <Avatar size="md" style={styles.avatar}>
-                                <AvatarImage source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${originalPost.user.id}/${originalPost.user.avatar}` }} />
-                              </Avatar>
+                              <Image
+                                source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${originalPost.user.id}/${originalPost.user.avatar}` }}
+                                style={styles.avatar}
+                                onError={(e) => console.log('Avatar load failed (originalPost):', originalPost.user?.avatar, e.nativeEvent)}
+                              />
                             ) : (
                               <View style={styles.grayCircleAvatar}>
                                 <Text style={styles.grayCircleText}>
@@ -414,9 +416,11 @@ const RemoveRepost = async (orig: Post) => {
                           <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
                             
                             {debate.challenger?.avatar ? (
-                              <Avatar size="md" style={styles.avatar}>
-                                <AvatarImage source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${debate.challenger?.id}/${debate.challenger?.avatar}` }} />
-                              </Avatar>
+                              <Image
+                                source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${debate.challenger?.id}/${debate.challenger?.avatar}` }}
+                                style={styles.avatar}
+                                onError={(e) => console.log('Avatar load failed (challenger):', debate.challenger?.avatar, e.nativeEvent)}
+                              />
                             ) : (
                               <View style={styles.grayCircleAvatar}>
                                 <Text style={styles.grayCircleText}>
@@ -501,37 +505,20 @@ const RemoveRepost = async (orig: Post) => {
                       </View>
                     </Pressable>
                   ) : isSelectedAsDebate === true ? (
-                    isPostOwner ? (
-                      <Pressable
-                        style={styles.actionIconDebateButton}
-                        onPress={() =>
-                          router.push({
-                            pathname: '/debateScreen',
-                            params: { postId: originalPostId },
-                          })
-                        }
-                      >
-                        <View style={styles.buttonContent}>
-                          <VoteIcon size={16} color="#b0b0b0" />
-                          <Text style={styles.buttonText}>Vote</Text>
-                        </View>
-                      </Pressable>
-                    ) : (
-                      <Pressable
-                        style={styles.actionIconDebateButton}
-                        onPress={() =>
-                          router.push({
-                            pathname: '/debateScreen',
-                            params: { postId: originalPostId },
-                          })
-                        }
-                      >
-                        <View style={styles.buttonContent}>
-                          <Swords size={16} color="#b0b0b0" />
-                          <Text style={styles.buttonText}>Debate</Text>
-                        </View>
-                      </Pressable>
-                    )
+                    <Pressable
+                      style={styles.actionIconDebateButton}
+                      onPress={() =>
+                        router.push({
+                          pathname: '/debateScreen',
+                          params: { postId: originalPostId },
+                        })
+                      }
+                    >
+                      <View style={styles.buttonContent}>
+                        <Swords size={16} color="#b0b0b0" />
+                        <Text style={styles.buttonText}>Debate</Text>
+                      </View>
+                    </Pressable>
                   ) : (
                     <Pressable
                       style={styles.actionIconDebateButton}
