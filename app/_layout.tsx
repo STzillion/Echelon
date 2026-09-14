@@ -1,4 +1,5 @@
 import { useFonts } from 'expo-font';
+import React from 'react';
 import "@/global.css";
 import { GluestackUIProvider } from "@/components/ui/gluestack-ui-provider";
 import { Stack } from 'expo-router';
@@ -12,7 +13,7 @@ import { S } from '@expo/html-elements';
 
 
 export default function RootLayout() {
-  const queryClient = new QueryClient();
+  const [queryClient] = React.useState(() => new QueryClient());
   const [loaded] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });

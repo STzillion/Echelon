@@ -31,7 +31,7 @@ export default () => {
   const [isUploading, setIsUploading] = useState(false);
   const [isDebate, setIsDebate] = useState(false);
   const { cameraPhotoUri } = useLocalSearchParams<{ cameraPhotoUri?: string }>();
-  const [video, setVideo] = useState<string>('');
+  const [video, setVideo] = useState<string | null>(null);
   const regex = /(#\w+)|(@\w+)|([^#@]+)/g;
   const textArray = Array.from(text.matchAll(regex), m => m[0]);
 
@@ -50,8 +50,15 @@ export default () => {
   
    const videoPlayer = useVideoPlayer(video, (player) => {
     player.loop = true;
-    player.play();
   });
+
+  React.useEffect(() => {
+    if (video) {
+      videoPlayer.play();
+    } else {
+      videoPlayer.pause();
+    }
+  }, [video, videoPlayer]);
 
   // Upload file to Supabase 
   const uploadFile = useUploadFile().uploadFile;
@@ -78,7 +85,7 @@ export default () => {
       const userId = (user as any)?.id;
       if (!userId) {
         Alert.alert('Upload error', 'User not signed in.');
-        setVideo('');
+        setVideo(null);
         setIsUploading(false);
         return;
       }
@@ -93,7 +100,7 @@ export default () => {
       if (uploadVideo) {
         setVideoFilename(uploadVideo);
       } else {
-        setVideo('');
+        setVideo(null);
         setVideoFilename(null);
       }
     }
@@ -295,7 +302,7 @@ export default () => {
               <HStack style={styles.composeRow}>
                 {(user as any)?.avatar ? (
                   <Image
-                    source={{ uri: (user as any)?.avatar }}
+                    source={{ uri:  `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${(user as any)?.id}/${(user as any)?.avatar}` }}
                     style={[styles.grayCircleAvatar, styles.avatarMarginTop]}
                     onError={(e) => console.log('Avatar load failed:', (user as any)?.avatar, e.nativeEvent)}
                   />
@@ -360,7 +367,7 @@ export default () => {
 
             {/* Post Button */}
             <HStack style={styles.footerRow}>
-              <Text style={styles.replyInfo}>Anyone can reply & debate</Text>
+              <Text style={styles.replyInfo}>Anyone can reply or debate</Text>
               <Button
                 style={[styles.postButton, { opacity: isDisabled ? 0.3 : 1 }]}
                 onPress={handlePostTypeSelection}
@@ -397,7 +404,7 @@ const styles = StyleSheet.create({
 
   cancelText: {
     color: '#b0b0b0',
-    fontSize: 16,
+    fontSize: 15,
   },
 
   headerTitle: {

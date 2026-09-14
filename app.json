@@ -7,7 +7,6 @@
     "icon": "./assets/images/EchelonLogo3d.png",
     "scheme": "toothandnail",
     "userInterfaceStyle": "automatic",
-    
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.yourcompany.toothandnail",
@@ -46,7 +45,7 @@
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
-      "plugins": [
+    "plugins": [
       "expo-router",
       [
         "expo-camera",
@@ -70,7 +69,11 @@
       "expo-web-browser",
       "expo-font",
       "expo-video",
-      "expo-audio"
+      "expo-audio",
+      "expo-asset",
+      "expo-image",
+      "expo-splash-screen",
+      "expo-status-bar"
     ],
     "experiments": {
       "typedRoutes": true

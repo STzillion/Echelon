@@ -4,6 +4,7 @@ import { Button, ButtonText } from '@/components/ui/button';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 
 export default function WelcomeScreen() {
   const router = useRouter();
@@ -28,13 +29,24 @@ export default function WelcomeScreen() {
       start={{ x: 0.2, y: 0 }}
       end={{ x: 0.8, y: 1 }}
     >
+      <Image
+        source={require('@/assets/images/EchelonLogo3d.png')}
+        style={styles.backgroundImage}
+        resizeMode="contain"
+      />
+      <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} pointerEvents="none" />
+      <LinearGradient
+        colors={['rgba(255,255,255,0.04)', 'rgba(0,170,210,0.03)', 'rgba(0,0,0,0.18)']}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
       <SafeAreaView style={styles.content}>
         <Image
-          source={require('@/assets/images/EchelonLogoBlue.png')}
+          source={require('@/assets/images/EchelonLogo3d.png')}
           style={styles.logo}
           resizeMode="contain"
         />
-        <Text style={styles.header}>Debate Like It Matters.</Text>
+        <Text style={styles.header}> Convo Meets Clarity.</Text>
 
         {/* Google Button with Press Feedback */}
         <Button onPress={handleGoogleSignIn} style={styles.whiteButton}>
@@ -93,8 +105,16 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
+  backgroundImage: {
+    position: 'absolute',
+    width: 560,
+    height: 560,
+    alignSelf: 'center',
+    top: '12%',
+    opacity: 0.07,
+  },
   backgroundLayer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: -1,
   },
   glow1: {
@@ -125,7 +145,7 @@ const styles = StyleSheet.create({
   },
   logo: {
     width: 300,
-    height: 100,
+    height: 110,
     alignSelf: 'center',
     marginBottom: 24,
   },
@@ -140,6 +160,9 @@ const styles = StyleSheet.create({
     textShadowRadius: 6,
   },
   whiteButton: {
+    width: '85%',
+    maxWidth: 360,
+    alignSelf: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderColor: 'rgba(255,255,255,0.1)',
     borderWidth: 1,
@@ -170,6 +193,9 @@ const styles = StyleSheet.create({
     height: 20,
   },
   divider: {
+    width: '85%',
+    maxWidth: 360,
+    alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     marginVertical: 8,

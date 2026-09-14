@@ -1,9 +1,11 @@
-import { SafeAreaView, Text, TextInput, View, StyleSheet } from 'react-native';
+import { SafeAreaView, Text, TextInput, View, StyleSheet, Image } from 'react-native';
 import React, { useState } from 'react';
 import { Button, ButtonText } from '@/components/ui/button';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { TouchableOpacity } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 
 
 
@@ -21,8 +23,25 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.header}>Log in to your account</Text>
+    <LinearGradient
+      colors={['#0d0d0d', '#1a1a1a', '#000']}
+      style={styles.screen}
+      start={{ x: 0.2, y: 0 }}
+      end={{ x: 0.8, y: 1 }}
+    >
+      <Image
+        source={require('@/assets/images/EchelonLogoGold.png')}
+        style={styles.backgroundImage}
+        resizeMode="contain"
+      />
+      <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} pointerEvents="none" />
+      <LinearGradient
+        colors={['rgba(255,255,255,0.04)', 'rgba(0,170,210,0.03)', 'rgba(0,0,0,0.18)']}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+      <SafeAreaView style={styles.container}>
+        <Text style={styles.header}>Log in to your account</Text>
 
       <TextInput
         placeholder="Email"
@@ -48,19 +67,31 @@ export default function LoginScreen() {
       </TouchableOpacity>
 
 
-      <Button onPress={handleLogin} style={styles.button}>
-        <ButtonText style={styles.buttonText}>Log In</ButtonText>
-      </Button>
-    </SafeAreaView>
+        <Button onPress={handleLogin} style={styles.button}>
+          <ButtonText style={styles.buttonText}>Log In</ButtonText>
+        </Button>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
     backgroundColor: '#000',
+  },
+  container: {
+    flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 24,
+  },
+  backgroundImage: {
+    position: 'absolute',
+    width: 560,
+    height: 560,
+    alignSelf: 'center',
+    top: '12%',
+    opacity: 0.07,
   },
   header: {
     color: '#fff',
@@ -68,9 +99,15 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 32,
     textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.7)',
+    textShadowOffset: { width: 1, height: 2 },
+    textShadowRadius: 6,
   },
   input: {
-    backgroundColor: '#111',
+    width: '85%',
+    maxWidth: 360,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     color: '#fff',
     paddingVertical: 14,
     paddingHorizontal: 16,
@@ -78,19 +115,24 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     fontSize: 16,
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: 'rgba(255, 255, 255, 0.18)',
   },
   button: {
-  backgroundColor: '#fff',
-  borderRadius: 30,
-  height: 52, // ✅ same as home screen
-  justifyContent: 'center',
-  alignItems: 'center',
-  marginTop: 8,
-  marginBottom: 16,
+    width: '85%',
+    maxWidth: 360,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderWidth: 1,
+    borderRadius: 30,
+    height: 52,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 16,
  },
   buttonText: {
-    color: '#000',
+    color: '#fff',
     fontWeight: '600',
     fontSize: 16,
   },

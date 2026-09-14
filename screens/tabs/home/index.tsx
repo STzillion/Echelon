@@ -138,6 +138,7 @@ const RemoveRepost = async (orig: Post) => {
 
     if(!repostsError && originalReposts?.length){
       const clonedReposts = originalReposts.map((repost: { id: string }) => ({
+        id: Crypto.randomUUID(),
         user_id: orig.user_id,
         parent_id: newPostId,
       }));
@@ -179,9 +180,6 @@ const RemoveRepost = async (orig: Post) => {
         console.error('Error loading debates:', err);
       }
     };
-    loadDebates();
-
-
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
 
@@ -200,7 +198,7 @@ const RemoveRepost = async (orig: Post) => {
   React.useCallback(() => {
     loadDebates();   
     refetch();       
-  }, [])
+  }, [refetch])
 );
 
   const regex = /(#\w+)|(@\w+)|([^#@]+)/g;

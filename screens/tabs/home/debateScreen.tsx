@@ -5,15 +5,21 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/providers/AuthProvider';
 import { useUploadFile } from '@/providers/uploadfile';
 import { useQueryClient } from '@tanstack/react-query';
-import { ResizeMode, Video } from 'expo-av';
 import * as Crypto from 'expo-crypto';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { Camera, Images, VideoIcon } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput, TouchableWithoutFeedback, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageWithText from '../../../components/ui/image-with-text';
+
+function DebateVideo({ uri, style }: { uri: string; style: import('react-native').StyleProp<import('react-native').ViewStyle> }) {
+  const player = useVideoPlayer(uri);
+
+  return <VideoView player={player} style={style} contentFit="contain" />;
+}
 
 export default function DebatePage() {
   const { postId } = useLocalSearchParams<{ postId: string }>();
@@ -213,11 +219,9 @@ export default function DebatePage() {
                   post.file.endsWith('.mp4') ? (
                     <View style={styles.media}>
                       <Text style={styles.mediaLabel}>Video attached</Text>
-                      <Video
-                        source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}` }}
+                      <DebateVideo
+                        uri={`${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}`}
                         style={styles.mediaVideo}
-                        shouldPlay={false}
-                        resizeMode={ResizeMode.CONTAIN}
                       />
                     </View>
                   ) : (
@@ -298,7 +302,7 @@ export default function DebatePage() {
               ) : null}
               {videoFile ? (
                 <View style={styles.postVideoPreview}>
-                  <Video source={{ uri: videoFile }} style={{ width: '100%', height: '100%' }} shouldPlay={false} resizeMode={ResizeMode.CONTAIN} />
+                  <DebateVideo uri={videoFile} style={{ width: '100%', height: '100%' }} />
                 </View>
               ) : null}
             </View>
