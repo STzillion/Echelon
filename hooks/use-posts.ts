@@ -8,6 +8,7 @@ export const getPosts = async (): Promise<Post[]> => {
     //
     .select(
       '*, user:User!user_id(*),' + 'repost_user:User!repost_user_id(*),  likes:Like(*)'
+      + ', reposts:Repost(*)'
     )
     // .is('parent_id', null)
     .order('created_at', { ascending: false });

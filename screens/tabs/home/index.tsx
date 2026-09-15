@@ -9,7 +9,16 @@ import * as Haptics from 'expo-haptics';
 import { router, useFocusEffect } from 'expo-router';
 import { EyeIcon, Heart, MessageCircle, Repeat, Swords, VoteIcon } from 'lucide-react-native';
 import React from 'react';
-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  Image,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PostVideo } from '../../video/postVideo';
 
@@ -44,6 +53,11 @@ export default function HomeScreen() {
   const currentUser = user as any;
   const { posts, refetch } = usedPosts();
   const [debates, setDebates] = React.useState<any[]>([]);
+  const [rootPosts, setRootPosts] = React.useState<Post[]>([]);
+  const [repostRows, setRepostRows] = React.useState<any[]>([]);
+  const [feedCursor, setFeedCursor] = React.useState<string | null>(null);
+  const [hasMoreFeed, setHasMoreFeed] = React.useState(true);
+  const [isLoadingMore, setIsLoadingMore] = React.useState(false);
   const [refreshing, setRefreshing] = React.useState(false);
   const Image_Url = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/`;
   
@@ -67,11 +81,16 @@ export default function HomeScreen() {
      const { data, error } = await supabase.from('Like').insert({
        user_id: currentUser?.id,
        post_id: postId,
-       post_text: posts?.find(p => p.id === postId)?.text || '', 
+       post_text: rootPosts.find((post) => post.id === postId)?.text || '',
      });
      if (error) {
        console.log('Error adding like:', error);
      } else {
+       setRootPosts((currentPosts) => currentPosts.map((post) =>
+         post.id === postId
+           ? { ...post, likes: [...(post.likes || []), { user_id: currentUser.id }] }
+           : post
+       ));
        await refetch();
      }
    } catch (err) {
@@ -86,6 +105,14 @@ export default function HomeScreen() {
        if (error) {
          console.log('Error removing like:', error);
        } else {
+         setRootPosts((currentPosts) => currentPosts.map((post) =>
+           post.id === postId
+             ? {
+                 ...post,
+                 likes: (post.likes || []).filter((like) => like.user_id !== currentUser.id),
+               }
+             : post
+         ));
          await refetch();
        }
      } catch (err) {
@@ -94,76 +121,104 @@ export default function HomeScreen() {
  }
 const RemoveRepost = async (orig: Post) => {
   try {
-    // delete the repost row that this user created for orig
-    const { error } = await supabase
-      .from('Post')
+    const rootPost = orig.parent_id
+      ? posts?.find((post) => post.id === orig.parent_id) || orig
+      : orig;
+    const { error: repostError } = await supabase
+      .from('Repost')
       .delete()
-      .eq('parent_id', orig.id)
-      .eq('repost_user_id', currentUser?.id);
-    if (error) console.log('Error removing repost:', error);
+      .eq('post_id', rootPost.id)
+      .eq('user_id', currentUser?.id);
+    if (repostError) console.log('Error removing repost:', repostError);
     await refetch();
+    await loadFeedData(true);
   } catch (err) {
     console.error('Exception removing repost:', err);
   }
 };
  const addRepost = async (orig: Post) => {
   try {
-    const newPostId = Crypto.randomUUID();
-    const { data: repostData, error: repostError } = await supabase.from('Post').insert({
-      id: newPostId,
-      user_id: orig.user_id,          // original author should stay on top row
-      parent_id: orig.id,
-      text: orig.text,
-      file: orig.file,
-      tag_name: orig.tag_name,
-      repost_user_id: currentUser?.id,
-    }).select('id').single();
+    const rootPost = orig.parent_id
+      ? posts?.find((post) => post.id === orig.parent_id) || orig
+      : orig;
+    const { error: repostError } = await supabase.from('Repost').insert({
+      id: Crypto.randomUUID(),
+      user_id: currentUser?.id,
+      post_id: rootPost.id,
+      post_text: rootPost.text,
+    });
 
     if (repostError) {
-      console.error('Error reposting:', repostError);
+      console.error('Error creating repost record:', repostError);
       return;
     }
 
-    // Copy likes from original post to repost so repost shows same like count
-    const { data: originalLikes, error: likeError } = await supabase
-      .from('Like')
-      .select('user_id')
-      .eq('post_id', orig.id);
-
-    const {data: originalReposts, error: repostsError} = await supabase
-      .from('Post')
-      .select('id')
-      .eq('parent_id', orig.id);
-
-
-    if(!repostsError && originalReposts?.length){
-      const clonedReposts = originalReposts.map((repost: { id: string }) => ({
-        id: Crypto.randomUUID(),
-        user_id: orig.user_id,
-        parent_id: newPostId,
-      }));
-      const { error: cloneRepostsError } = await supabase.from('Post').insert(clonedReposts);
-      if(cloneRepostsError){
-        console.error('Error copying reposts to new repost:', cloneRepostsError);
-      }
-    }
-
-    if (!likeError && originalLikes?.length) {
-      const clonedLikes = originalLikes.map((like: { user_id: string }) => ({
-        user_id: like.user_id,
-        post_id: newPostId,
-      }));
-      const { error: cloneError } = await supabase.from('Like').insert(clonedLikes);
-      if (cloneError) {
-        console.error('Error copying likes to repost:', cloneError);
-      }
-    }
-
     await refetch();
+    await loadFeedData(true);
   } catch (err) {
     console.error('Error reposting:', err);
   }
 };
+
+  const loadFeedData = async (reset = false) => {
+    if (isLoadingMore && !reset) return;
+    setIsLoadingMore(true);
+
+    const cursor = reset ? null : feedCursor;
+    let rootQuery = supabase
+      .from('Post')
+      .select('*, user:User!user_id(*), likes:Like(*)')
+      .is('parent_id', null)
+      .order('created_at', { ascending: false })
+      .range(0, 19);
+
+    if (cursor) rootQuery = rootQuery.lt('created_at', cursor);
+
+    const { data: rootData, error: rootError } = await rootQuery;
+
+    if (rootError) {
+      console.error('Error loading feed posts:', rootError);
+      setIsLoadingMore(false);
+      return;
+    }
+
+    const fetchedRoots = (rootData || []) as Post[];
+    const nextRoots = reset
+      ? fetchedRoots
+      : [...rootPosts, ...fetchedRoots.filter(
+          (post) => !rootPosts.some((existing) => existing.id === post.id)
+        )];
+    setRootPosts(nextRoots);
+    setHasMoreFeed(fetchedRoots.length === 20);
+    setFeedCursor(fetchedRoots[fetchedRoots.length - 1]?.created_at || feedCursor);
+
+    if (nextRoots.length === 0) {
+      setRepostRows([]);
+      setIsLoadingMore(false);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('Repost')
+      .select('*, user:User!user_id(*)')
+      .in('post_id', nextRoots.map((post) => post.id))
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.error('Error loading reposts:', error);
+      setIsLoadingMore(false);
+      return;
+    }
+    setRepostRows(data || []);
+    setIsLoadingMore(false);
+  };
+
+  const handleFeedScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+    const distanceFromBottom = contentSize.height - (layoutMeasurement.height + contentOffset.y);
+    if (distanceFromBottom < 300 && hasMoreFeed && !isLoadingMore) {
+      loadFeedData(false);
+    }
+  };
 
  
   const loadDebates = async () => {
@@ -185,6 +240,7 @@ const RemoveRepost = async (orig: Post) => {
 
     try {
       await refetch();
+      await loadFeedData(true);
       const { data, error } = await supabase
         .from('Debate')
         .select('*, challenger:User!challenger_id(*), opponent:User!opponent_id(*)');
@@ -198,32 +254,41 @@ const RemoveRepost = async (orig: Post) => {
   React.useCallback(() => {
     loadDebates();   
     refetch();       
+    loadFeedData(true);
   }, [refetch])
 );
 
   const regex = /(#\w+)|(@\w+)|([^#@]+)/g;
 
   const sortedPosts = React.useMemo(() => {
-    if (!posts) return [];
-    return [...posts].sort((a, b) => {
-      const aIsOwnRepost = a.repost_user_id === currentUser?.id;
-      const bIsOwnRepost = b.repost_user_id === currentUser?.id;
-      if (aIsOwnRepost !== bIsOwnRepost) {
-        return aIsOwnRepost ? 1 : -1;
-      }
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    });
-  }, [posts, currentUser?.id]);
+    return [...rootPosts].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  }, [rootPosts]);
 
 
   const feedPosts = React.useMemo(() => {
-    return sortedPosts.filter((post) => {
-      // Hide post replies and debate counters from the main root feed
-      if (post.parent_id) return false;
-      // Hide repost entries created by current user.
-      return !(post.repost_user_id && post.repost_user_id === currentUser?.id);
-    });
-  }, [sortedPosts, currentUser?.id]);
+    const rootPosts = sortedPosts.filter((post) => !post.parent_id);
+    const repostItems = repostRows
+      .filter((repost) => repost.user_id !== currentUser?.id)
+      .map((repost) => {
+        const originalPost = rootPosts.find((post) => post.id === repost.post_id);
+        if (!originalPost) return null;
+        return {
+          ...originalPost,
+          id: `repost-${repost.id}`,
+          parent_id: originalPost.id,
+          repost_user_id: repost.user_id,
+          repost_user: repost.user,
+          created_at: repost.created_at,
+        } as Post;
+      })
+      .filter(Boolean) as Post[];
+
+    return [...rootPosts, ...repostItems].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  }, [rootPosts, repostRows, sortedPosts, currentUser?.id]);
 
 
 
@@ -261,29 +326,51 @@ const RemoveRepost = async (orig: Post) => {
         </View>
       </View>
       {/* Feed */}
-      <ScrollView style={styles.feed} contentContainerStyle={{ paddingBottom: 32 }} showsVerticalScrollIndicator={false} refreshControl={ <RefreshControl refreshing={refreshing} onRefresh={onRefresh} /> }>
+      <ScrollView
+        style={styles.feed}
+        contentContainerStyle={{ paddingBottom: 32 }}
+        showsVerticalScrollIndicator={false}
+        onScroll={handleFeedScroll}
+        scrollEventThrottle={250}
+        refreshControl={ <RefreshControl refreshing={refreshing} onRefresh={onRefresh} /> }
+      >
         {(posts?.length ?? 0) === 0 ? (
           <Text style={{ color: 'gray', textAlign: 'center', marginTop: 24 }}>No posts yet.</Text>
         ) : null}
         {(feedPosts ?? []).map((post, idx) => {
-          const isLiked = post?.likes?.some((like: { user_id: string}) => like.user_id === currentUser?.id);
-          const repostCount = (posts ?? []).filter(p => p.parent_id === post.id).length;
+          const originalPost = post.parent_id
+            ? rootPosts.find((rootPost) => rootPost.id === post.parent_id)
+            : post;
+          const displayPost = originalPost || post;
+          const originalPostId = originalPost?.id || post.id;
+          const isLiked = originalPost?.likes?.some(
+            (like: { user_id: string }) => like.user_id === currentUser?.id
+          );
+          const repostUserIds = new Set([
+            ...repostRows
+              .filter((repost) => repost.post_id === originalPostId)
+              .map((repost) => repost.user_id as string),
+            ...(rootPosts ?? [])
+              .filter((p) => p.parent_id === originalPostId && p.repost_user_id)
+              .map((p) => p.repost_user_id as string),
+          ]);
+          const repostCount = repostUserIds.size;
           // For reposts, check the original post's debate; otherwise check current post
-          const originalPostId = post.parent_id || post.id;
           const hasExistingDebate = debates.some(d => d.root_post_id === originalPostId);
           const isSelectedAsDebate = Boolean(post.isDebate) || post.debate_side === 'root';
           const ifNotDebate = !hasExistingDebate;
-          const isReposted = (posts ?? []).some(
-            p => p.parent_id === post.id && p.repost_user_id === currentUser?.id
+          const isReposted = repostRows.some(
+            (repost) => repost.post_id === originalPostId && repost.user_id === currentUser?.id
+          ) || (rootPosts ?? []).some(
+            p => p.parent_id === originalPostId && p.repost_user_id === currentUser?.id
           );
-          const originalPost = post.parent_id ? posts?.find(p => p.id === post.parent_id) : post;
           const isOwnPost = Boolean(currentUser?.id && (originalPost?.user_id === currentUser.id || post.user_id === currentUser.id));
           const canDebate = isSelectedAsDebate && !isOwnPost && !hasExistingDebate;
-          const imageUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user?.id}/${post.user?.avatar}`;
+          const imageUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${displayPost.user?.id}/${displayPost.user?.avatar}`;
           return (
           <React.Fragment key={post.id}>
             <View style={styles.postCard}>
-              {post.user?.avatar ? (
+              {displayPost.user?.avatar ? (
                 <Image
                   source={{ uri: imageUrl }}
                   style={styles.avatar}
@@ -291,7 +378,7 @@ const RemoveRepost = async (orig: Post) => {
                 />
               ) : (
                 <View style={styles.grayCircleAvatar}>
-                  <Text style={styles.grayCircleText}>{post.user?.username?.[0]?.toUpperCase() || '?'}</Text>
+                  <Text style={styles.grayCircleText}>{displayPost.user?.username?.[0]?.toUpperCase() || '?'}</Text>
                 </View>
               )}
               <View style={styles.postContent}>
@@ -315,33 +402,33 @@ const RemoveRepost = async (orig: Post) => {
                 )}
                 <Pressable onPress = {() => router.push(
                   {pathname: `/user`, 
-                  params: { userId: post.user_id }
+                  params: { userId: displayPost.user_id }
                   })}>
 
                   <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
-                    <Text style={styles.usernameNoMargin}>{post.user?.username || (user as any)?.username}</Text>
+                    <Text style={styles.usernameNoMargin}>{displayPost.user?.username || (user as any)?.username}</Text>
                     <Text style={{ fontSize: 12, color: '#888', marginLeft: 4 }}>
-                      {timeAgo(post.created_at)}
+                      {timeAgo(displayPost.created_at)}
                     </Text>
                 </View>
                 </Pressable>
                 
                {(ifNotDebate) && (
                   <View>
-                    {renderPostText(post.text)}
-                      {post.file && post.file.endsWith('.mp4') ? (
+                    {renderPostText(displayPost.text)}
+                      {displayPost.file && displayPost.file.endsWith('.mp4') ? (
                                     <PostVideo 
-                                      uri={`${Image_Url}${post.user_id}/${post.file}`}
-                                      isVisible={!!post.file}
+                                      uri={`${Image_Url}${displayPost.user_id}/${displayPost.file}`}
+                                      isVisible={!!displayPost.file}
                                     />
                                   ) : (
                                     <Image
-                                      source={{ uri: `${Image_Url}${post.user_id}/${post.file}` }}
+                                      source={{ uri: `${Image_Url}${displayPost.user_id}/${displayPost.file}` }}
                                       style={{ 
-                                        width: !!post.file ? '100%' : 0, 
-                                        height: !!post.file ? 200 : 0, 
-                                        borderRadius: !!post.file ? 10 : 0, 
-                                        marginTop: !!post.file ? 8 : 0 
+                                        width: !!displayPost.file ? '100%' : 0, 
+                                        height: !!displayPost.file ? 200 : 0, 
+                                        borderRadius: !!displayPost.file ? 10 : 0, 
+                                        marginTop: !!displayPost.file ? 8 : 0 
                                       }}
                                     />
                                   )}
@@ -442,13 +529,13 @@ const RemoveRepost = async (orig: Post) => {
                   <View style={styles.likeGroup}>
                     <Pressable onPress={ () => 
                       {
-                        isLiked ? RemoveLike(post.id) : AddLike(post.id);
+                        isLiked ? RemoveLike(originalPostId) : AddLike(originalPostId);
                       }} 
                       style={styles.actionIcon}>
                       <Heart size={20}  color={isLiked ? 'red' : 'grey'} fill={isLiked ? 'red' : 'transparent'} />
                     </Pressable>
-                    {(post.likes?.length ?? 0) > 0 && (
-                      <Text style={styles.likeCount}>{post.likes!.length}</Text>
+                    {(displayPost.likes?.length ?? 0) > 0 && (
+                      <Text style={styles.likeCount}>{displayPost.likes!.length}</Text>
                     )}
                   </View>
                   <Pressable style={styles.actionIcon}>

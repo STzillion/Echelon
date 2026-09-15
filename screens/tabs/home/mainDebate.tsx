@@ -28,7 +28,10 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Heart,
   Image as ImageIcon,
+  MessageCircle,
+  Repeat,
   Send,
   Swords,
   Video as VideoIcon,
@@ -84,6 +87,9 @@ export default function MainDebateScreen() {
   const [exchanges, setExchanges] = useState<ExchangeItem[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [hideExchangesBanner, setHideExchangesBanner] = useState(false);
+  const [repostCount, setRepostCount] = useState(0);
+  const [isReposted, setIsReposted] = useState(false);
+  const [commentCount, setCommentCount] = useState(0);
 
   // Votes state
   const [opVotes, setOpVotes] = useState(31);
@@ -98,6 +104,7 @@ export default function MainDebateScreen() {
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
 
   const scrollRef = useRef<ScrollView>(null);
+  const mainScrollRef = useRef<ScrollView>(null);
 
   const loadDebateData = async () => {
     try {
@@ -109,13 +116,23 @@ export default function MainDebateScreen() {
       if (targetPostId) {
         const { data, error } = await supabase
           .from('Post')
-          .select('*, user:User!user_id(*)')
+          .select('*, user:User!user_id(*), likes:Like(*)')
           .eq('id', targetPostId)
           .maybeSingle();
 
         if (error) console.warn('Error loading root post:', error.message);
         postData = data;
-        setRootPost(data as any);
+
+        if (data?.parent_id && data?.repost_user_id) {
+          const { data: originalPost } = await supabase
+            .from('Post')
+            .select('*, user:User!user_id(*), likes:Like(*)')
+            .eq('id', data.parent_id)
+            .maybeSingle();
+          if (originalPost) postData = originalPost;
+        }
+
+        setRootPost(postData as any);
       }
 
       // 2. Fetch debate record
@@ -125,8 +142,8 @@ export default function MainDebateScreen() {
 
       if (debateId) {
         debateQuery = debateQuery.eq('id', debateId);
-      } else if (targetPostId) {
-        debateQuery = debateQuery.eq('root_post_id', targetPostId);
+      } else if (postData?.id || targetPostId) {
+        debateQuery = debateQuery.eq('root_post_id', postData?.id || targetPostId);
       }
 
       const { data: debateData, error: debateErr } = await debateQuery.maybeSingle();
@@ -134,8 +151,23 @@ export default function MainDebateScreen() {
 
       setDebate(debateData);
 
+      let debateSegments: any[] = [];
+      if (debateData?.id) {
+        const { data: segmentData, error: segmentError } = await supabase
+          .from('DebateSegment')
+          .select('*')
+          .eq('debate_id', debateData.id)
+          .order('round_number', { ascending: true });
+
+        if (segmentError) {
+          console.warn('Error loading debate segments:', segmentError.message);
+        } else {
+          debateSegments = segmentData || [];
+        }
+      }
+
       // 3. Fetch any additional replies / threaded posts in this debate
-      const currentRootId = targetPostId || debateData?.root_post_id;
+      const currentRootId = postData?.id || debateData?.root_post_id;
       let threadPosts: any[] = [];
       if (currentRootId) {
         const { data: repliesData } = await supabase
@@ -146,6 +178,28 @@ export default function MainDebateScreen() {
           .order('created_at', { ascending: true });
 
         threadPosts = (repliesData || []).filter((p) => !p.repost_user_id);
+        setCommentCount(threadPosts.filter((p) => !p.debate_side).length);
+
+        const [{ data: postReposts }, { data: legacyReposts }] = await Promise.all([
+          supabase
+            .from('Post')
+            .select('repost_user_id')
+            .eq('parent_id', currentRootId)
+            .not('repost_user_id', 'is', null),
+          supabase
+            .from('Repost')
+            .select('user_id')
+            .eq('post_id', currentRootId),
+        ]);
+        const repostUserIds = new Set([
+          ...(postReposts || []).map((repost) => repost.repost_user_id),
+          ...(legacyReposts || []).map((repost) => repost.user_id),
+        ]);
+        setRepostCount(repostUserIds.size);
+
+        if (currentUser?.id) {
+          setIsReposted(repostUserIds.has(currentUser.id));
+        }
       }
 
       // 4. Construct exchanges list
@@ -167,38 +221,62 @@ export default function MainDebateScreen() {
         });
       }
 
-      // Exchange 1: Challenger counter-argument
-      if (debateData && debateData.challenger_text) {
-        items.push({
-          id: `${debateData.id}-challenger`,
-          speakerId: debateData.challenger_id,
-          speakerName: debateData.challenger?.username || 'Challenger',
-          speakerHandle: debateData.challenger?.username?.toLowerCase() || 'challenger',
-          avatar: debateData.challenger?.avatar,
-          text: debateData.challenger_text || '',
-          file: debateData.challenger_file || null,
-          createdAt: debateData.created_at,
-          side: 'challenger',
-          roundNumber: 2,
+      if (debateSegments.length > 0) {
+        debateSegments.forEach((segment) => {
+          const speaker =
+            segment.speaker_id === debateData?.challenger_id
+              ? debateData.challenger
+              : segment.speaker_id === debateData?.opponent_id
+                ? debateData.opponent
+                : segment.speaker_id === postData?.user_id
+                  ? postData.user
+                  : null;
+          items.push({
+            id: segment.id,
+            speakerId: segment.speaker_id,
+            speakerName: speaker?.username || 'Debater',
+            speakerHandle: speaker?.username?.toLowerCase() || 'debater',
+            avatar: speaker?.avatar,
+            text: segment.text || '',
+            file: segment.file,
+            createdAt: segment.created_at,
+            side: segment.side === 'root' ? 'root' : 'challenger',
+            roundNumber: segment.round_number,
+          });
+        });
+      } else {
+        // Legacy debates created before DebateSegment existed.
+        if (debateData && debateData.challenger_text) {
+          items.push({
+            id: `${debateData.id}-challenger`,
+            speakerId: debateData.challenger_id,
+            speakerName: debateData.challenger?.username || 'Challenger',
+            speakerHandle: debateData.challenger?.username?.toLowerCase() || 'challenger',
+            avatar: debateData.challenger?.avatar,
+            text: debateData.challenger_text || '',
+            file: debateData.challenger_file || null,
+            createdAt: debateData.created_at,
+            side: 'challenger',
+            roundNumber: 2,
+          });
+        }
+
+        threadPosts.forEach((tp) => {
+          const isOp = tp.user_id === postData?.user_id;
+          items.push({
+            id: tp.id,
+            speakerId: tp.user_id,
+            speakerName: tp.user?.username || (isOp ? 'Original Poster' : 'Challenger'),
+            speakerHandle: tp.user?.username?.toLowerCase() || 'user',
+            avatar: tp.user?.avatar,
+            text: tp.text || '',
+            file: tp.file,
+            createdAt: tp.created_at,
+            side: isOp ? 'root' : 'challenger',
+            roundNumber: items.length + 1,
+          });
         });
       }
-
-      // Follow-up exchanges
-      threadPosts.forEach((tp, idx) => {
-        const isOp = tp.user_id === postData?.user_id;
-        items.push({
-          id: tp.id,
-          speakerId: tp.user_id,
-          speakerName: tp.user?.username || (isOp ? 'Original Poster' : 'Challenger'),
-          speakerHandle: tp.user?.username?.toLowerCase() || 'user',
-          avatar: tp.user?.avatar,
-          text: tp.text || '',
-          file: tp.file,
-          createdAt: tp.created_at,
-          side: isOp ? 'root' : 'challenger',
-          roundNumber: items.length + 1,
-        });
-      });
 
       setExchanges(items);
 
@@ -334,20 +412,20 @@ export default function MainDebateScreen() {
       const debateDbId = debate?.id;
       const currentSide = currentUser.id === opUser.id ? 'root' : 'challenger';
 
-      const newPostId = Crypto.randomUUID();
-      const { error } = await supabase.from('Post').insert({
-        id: newPostId,
-        user_id: currentUser.id,
-        parent_id: rootId,
+      const { error: segmentError } = await supabase.from('DebateSegment').insert({
+        id: Crypto.randomUUID(),
         debate_id: debateDbId,
-        debate_side: currentSide,
+        post_id: rootId,
+        speaker_id: currentUser.id,
         text: replyText.trim(),
         file: mediaFilename,
+        side: currentSide,
+        round_number: exchanges.length + 1,
       });
 
-      if (error) {
-        console.error('Error posting counter-opinion:', error);
-        Alert.alert('Error', 'Could not post your counter-opinion.');
+      if (segmentError) {
+        console.error('Error creating debate segment:', segmentError);
+        Alert.alert('Error', 'The response was posted, but its debate segment could not be saved.');
         return;
       }
 
@@ -365,6 +443,91 @@ export default function MainDebateScreen() {
     } finally {
       setIsSubmittingReply(false);
       setIsUploadingMedia(false);
+    }
+  };
+
+  const isLiked = Boolean(rootPost?.likes?.some((like) => like.user_id === currentUser?.id));
+
+  const handleToggleLike = async () => {
+    if (!rootPost?.id || !currentUser?.id) {
+      Alert.alert('Sign in required', 'Please log in to like this post.');
+      return;
+    }
+
+    if (isLiked) {
+      await supabase.from('Like').delete().eq('user_id', currentUser.id).eq('post_id', rootPost.id);
+      setRootPost((post) =>
+        post
+          ? { ...post, likes: (post.likes || []).filter((like) => like.user_id !== currentUser.id) }
+          : post
+      );
+    } else {
+      const { error } = await supabase.from('Like').insert({
+        user_id: currentUser.id,
+        post_id: rootPost.id,
+        post_text: rootPost.text,
+      });
+      if (!error) {
+        setRootPost((post) =>
+          post
+            ? { ...post, likes: [...(post.likes || []), { user_id: currentUser.id }] }
+            : post
+        );
+      }
+    }
+  };
+
+  const handleToggleRepost = async () => {
+    if (!rootPost?.id || !currentUser?.id) {
+      Alert.alert('Sign in required', 'Please log in to repost this post.');
+      return;
+    }
+
+    if (isReposted) {
+      const { error: feedPostError } = await supabase
+        .from('Post')
+        .delete()
+        .eq('parent_id', rootPost.id)
+        .eq('repost_user_id', currentUser.id);
+      const { error: repostError } = await supabase
+        .from('Repost')
+        .delete()
+        .eq('post_id', rootPost.id)
+        .eq('user_id', currentUser.id);
+      if (!feedPostError && !repostError) {
+        setIsReposted(false);
+        setRepostCount((count) => Math.max(0, count - 1));
+      }
+      return;
+    }
+
+    const { error: repostError } = await supabase.from('Repost').insert({
+      id: Crypto.randomUUID(),
+      user_id: currentUser.id,
+      post_id: rootPost.id,
+      post_text: rootPost.text,
+    });
+    if (repostError) {
+      console.error('Error creating repost record:', repostError);
+      return;
+    }
+
+    const { error: feedPostError } = await supabase.from('Post').insert({
+      id: Crypto.randomUUID(),
+      user_id: rootPost.user_id,
+      parent_id: rootPost.id,
+      text: rootPost.text,
+      file: rootPost.file,
+      repost_user_id: currentUser.id,
+    });
+    if (feedPostError) {
+      await supabase.from('Repost').delete().eq('post_id', rootPost.id).eq('user_id', currentUser.id);
+      console.error('Error creating repost feed entry:', feedPostError);
+      return;
+    }
+    if (!repostError && !feedPostError) {
+      setIsReposted(true);
+      setRepostCount((count) => count + 1);
     }
   };
 
@@ -396,6 +559,7 @@ export default function MainDebateScreen() {
             </View>
           ) : (
             <ScrollView
+              ref={mainScrollRef}
               contentContainerStyle={styles.mainScrollContent}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
@@ -599,6 +763,34 @@ export default function MainDebateScreen() {
                     })}
                   </View>
                 </View>
+              </View>
+
+              <View style={styles.postActionsRow}>
+                <Pressable onPress={handleToggleLike} style={styles.postAction}>
+                  <Heart
+                    size={20}
+                    color={isLiked ? '#ef4444' : '#b0b0b0'}
+                    fill={isLiked ? '#ef4444' : 'transparent'}
+                  />
+                  {(rootPost?.likes?.length || 0) > 0 ? (
+                    <Text style={styles.postActionText}>{rootPost?.likes?.length}</Text>
+                  ) : null}
+                </Pressable>
+                <Pressable
+                  onPress={() => mainScrollRef.current?.scrollToEnd({ animated: true })}
+                  style={styles.postAction}
+                >
+                  <MessageCircle size={20} color="#b0b0b0" />
+                  {commentCount > 0 ? (
+                    <Text style={styles.postActionText}>{commentCount}</Text>
+                  ) : null}
+                </Pressable>
+                <Pressable onPress={handleToggleRepost} style={styles.postAction}>
+                  <Repeat size={20} color={isReposted ? '#22d3ee' : '#b0b0b0'} />
+                  {repostCount > 0 ? (
+                    <Text style={styles.postActionText}>{repostCount}</Text>
+                  ) : null}
+                </Pressable>
               </View>
 
               {/* Debate Separator Line extending edge-to-edge */}
@@ -828,6 +1020,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 8,
     marginBottom: 4,
+  },
+  postActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 36,
+    paddingHorizontal: 16,
+    marginTop: 4,
+  },
+  postAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  postActionText: {
+    color: '#a1a1aa',
+    fontSize: 12,
+    fontWeight: '600',
   },
   dotsIndicatorContainer: {
     flexDirection: 'row',

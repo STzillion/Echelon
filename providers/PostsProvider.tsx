@@ -23,6 +23,7 @@ export type Post = {
   };
   Post?: Post[]; //for replies
   likes?: { user_id: string }[]; // added to support like state
+  reposts?: { user_id: string; post_id?: string }[];
 };
 export type User = {
   id: string;

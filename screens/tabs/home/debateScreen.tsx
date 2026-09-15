@@ -98,8 +98,9 @@ export default function DebatePage() {
         return;
       }
 
+      const debateId = Crypto.randomUUID();
       const { error } = await supabase.from('Debate').insert({
-        id: Crypto.randomUUID(),
+        id: debateId,
         root_post_id: postId,
         challenger_id: currentUser.id,
         opponent_id: post.user_id,
@@ -114,6 +115,23 @@ export default function DebatePage() {
         console.error('Error creating debate:', error);
         Alert.alert('Error', 'Could not create debate.');
       } else {
+        const { error: segmentError } = await supabase.from('DebateSegment').insert({
+          id: Crypto.randomUUID(),
+          debate_id: debateId,
+          post_id: postId,
+          speaker_id: currentUser.id,
+          text: defendText.trim(),
+          file: videoFilename ?? imageFilename,
+          side: 'challenger',
+          round_number: 2,
+        });
+
+        if (segmentError) {
+          console.error('Error creating initial debate segment:', segmentError);
+          Alert.alert('Error', 'The debate was created, but its first segment could not be saved.');
+          return;
+        }
+
         await queryClient.invalidateQueries({ queryKey: ['posts'] });
         // After posting navigate to the main home tab
         router.push('/(tabs)');

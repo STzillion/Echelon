@@ -22,8 +22,10 @@ model User {
   created_at DateTime @default(now())
 
   posts      Post[]   @relation("User")
-  reposts    Repost[]   @relation("RepostUser")
+  repostedPosts Post[] @relation("RepostUser")
+  reposts    Repost[]   @relation("RepostRecordUser")
   likes      Like[]
+  debateSegments DebateSegment[] @relation("DebateSegmentSpeaker")
 
   // ADD THESE
   debates_challenging Debate[] @relation("DebateChallenger")
@@ -39,15 +41,16 @@ model Post {
   text             String?
   file             String?
   repost_user_id   String?
-  repost_user      User?    @relation("RepostUser",fields: [repost_user_id], references: [id])
+  repost_user      User?    @relation("RepostUser", fields: [repost_user_id], references: [id])
   tag_name         String?
   created_at       DateTime @default(now())
   Post             Post[]   @relation("Posts")
-  reposts          Repost[]
+  reposts          Repost[] @relation("PostRepostRecords")
   debate_id        String?
   debate_side      String?
   debate           Debate?  @relation("PostToDebate", fields: [debate_id], references: [id])
   debateRoot       Debate?  @relation("DebateRootPost")
+  debateSegments   DebateSegment[] @relation("PostDebateSegments")
   likes            Like[]
   tag_id           String?
   Tags             Tag?     @relation(fields: [tag_name], references: [name])
@@ -73,6 +76,25 @@ model Debate {
   challenger      User     @relation("DebateChallenger", fields: [challenger_id], references: [id], onDelete: Cascade)
   opponent        User?    @relation("DebateOpponent", fields: [opponent_id], references: [id], onDelete: Cascade)
   posts           Post[]   @relation("PostToDebate")
+  segments        DebateSegment[] @relation("DebateSegments")
+}
+
+model DebateSegment {
+  id           String   @id @default(dbgenerated("uuid_generate_v4()"))
+  debate_id    String
+  post_id      String
+  speaker_id   String
+  text         String?
+  file         String?
+  side         String
+  round_number Int
+  created_at   DateTime @default(now())
+
+  debate       Debate   @relation("DebateSegments", fields: [debate_id], references: [id], onDelete: Cascade)
+  post         Post     @relation("PostDebateSegments", fields: [post_id], references: [id], onDelete: Cascade)
+  speaker      User     @relation("DebateSegmentSpeaker", fields: [speaker_id], references: [id], onDelete: Cascade)
+
+  @@index([debate_id, round_number])
 }
 
 model Like {
@@ -93,8 +115,8 @@ model Repost {
   post_id       String
   created_at    DateTime @default(now())
 
-  user          User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  post          Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  user          User     @relation("RepostRecordUser", fields: [user_id], references: [id], onDelete: Cascade)
+  post          Post     @relation("PostRepostRecords", fields: [post_id], references: [id], onDelete: Cascade)
 
 
   post_text     String?
