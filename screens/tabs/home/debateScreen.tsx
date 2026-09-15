@@ -9,11 +9,12 @@ import * as Crypto from 'expo-crypto';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { Camera, Images, VideoIcon } from 'lucide-react-native';
+import { ArrowLeft, Camera, Image as ImageIcon, Swords, Video as VideoIcon, X } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput, TouchableWithoutFeedback, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import ImageWithText from '../../../components/ui/image-with-text';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 
 function DebateVideo({ uri, style }: { uri: string; style: import('react-native').StyleProp<import('react-native').ViewStyle> }) {
   const player = useVideoPlayer(uri);
@@ -83,6 +84,10 @@ export default function DebatePage() {
     }
     if (!postId || !currentUser?.id) {
       Alert.alert('Cannot post', 'Missing post or user.');
+      return;
+    }
+    if (post?.user_id === currentUser.id) {
+      Alert.alert('Invalid action', 'You cannot debate your own post.');
       return;
     }
 
@@ -188,214 +193,283 @@ export default function DebatePage() {
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={75}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss} style={{ flex: 1 }}>
-          <VStack style={{ flex: 1, justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 20 }}>
+          <VStack style={{ flex: 1, justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 16 }}>
             <View>
+              {/* Header */}
               <View style={styles.headerRow}>
-            <Pressable style={styles.backButton} onPress={() => router.back()}>
-              <Text style={styles.backButtonText}>← Back</Text>
-            </Pressable>
-            <Text style={styles.screenTitle}>Debate</Text>
-          </View>
+                <Pressable
+                  style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.7 }]}
+                  onPress={() => router.back()}
+                  hitSlop={8}
+                >
+                  <ArrowLeft size={16} color="#e5e7eb" />
+                  <Text style={styles.backButtonText}>Back</Text>
+                </Pressable>
+                <Text style={styles.screenTitle}>Debate</Text>
+              </View>
 
-          {fetching ? (
-            <ActivityIndicator color="#82b1ff" size="large" style={styles.loading} />
-          ) : post ? (
-            <>
-              <View style={[
-                styles.postCard,
-                keyboardVisible && post?.file && { maxHeight: 200 }
-              ]}>
-                <View style={styles.postMetaRow}>
-                  <View style={styles.badge}> 
-                    <Text style={styles.badgeText}>OP</Text>
-                  </View>
-                  <Text style={styles.postUser}>{post.user?.username ?? 'Unknown'}</Text>
-                </View>
-                <Text style={styles.postText}>{post.text ?? 'No post text available.'}</Text>
-                {post.file ? (
-                  post.file.endsWith('.mp4') ? (
-                    <View style={styles.media}>
-                      <Text style={styles.mediaLabel}>Video attached</Text>
-                      <DebateVideo
-                        uri={`${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}`}
-                        style={styles.mediaVideo}
-                      />
-                    </View>
-                  ) : (
-                    <Image
-                      source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}` }}
-                      style={styles.mediaImage}
+              {fetching ? (
+                <ActivityIndicator color="#1d9bf0" size="large" style={styles.loading} />
+              ) : post ? (
+                <>
+                  {/* OP Post Card with Glassmorphism */}
+                  <View
+                    style={[
+                      styles.postCard,
+                      keyboardVisible && post?.file && { maxHeight: 180 },
+                    ]}
+                  >
+                    <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} />
+                    <LinearGradient
+                      colors={['rgba(255, 255, 255, 0.07)', 'rgba(255, 255, 255, 0.02)']}
+                      style={StyleSheet.absoluteFill}
+                      pointerEvents="none"
                     />
-                  )
+                    <View style={styles.postMetaRow}>
+                      <View style={styles.badge}>
+                        <Text style={styles.badgeText}>OP</Text>
+                      </View>
+                      <Text style={styles.postUser}>{post.user?.username ?? 'Unknown'}</Text>
+                      <Text style={styles.postHandle}>
+                        @{post.user?.username?.toLowerCase() ?? 'unknown'}
+                      </Text>
+                    </View>
+
+                    <Text style={styles.postText}>{post.text ?? 'No post text available.'}</Text>
+
+                    {post.file ? (
+                      post.file.endsWith('.mp4') ? (
+                        <View style={styles.media}>
+                          <Text style={styles.mediaLabel}>Video attached</Text>
+                          <DebateVideo
+                            uri={`${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}`}
+                            style={styles.mediaVideo}
+                          />
+                        </View>
+                      ) : (
+                        <Image
+                          source={{
+                            uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user_id}/${post.file}`,
+                          }}
+                          style={styles.mediaImage}
+                          resizeMode="cover"
+                        />
+                      )
+                    ) : null}
+                  </View>
+
+                  {/* VS Separator */}
+                  <View style={styles.vsContainer}>
+                    <View style={styles.vsLine} />
+                    <View style={styles.vsPill}>
+                      <Swords size={13} color="#22d3ee" strokeWidth={2.2} />
+                      <Text style={styles.vsText}>VS</Text>
+                    </View>
+                    <View style={styles.vsLine} />
+                  </View>
+                </>
+              ) : (
+                <Text style={styles.errorText}>Unable to load the post.</Text>
+              )}
+            </View>
+
+            {/* Rebuttal Composer */}
+            <View style={styles.composerCard}>
+              <View style={styles.composerHeaderRow}>
+                <Text style={styles.subTitle}>Rebuttal</Text>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.submitButton,
+                    (!defendText.trim() || isSubmitting || isUploadingFile) && styles.submitButtonDisabled,
+                    pressed && styles.buttonPressed,
+                  ]}
+                  onPress={handleDefend}
+                  disabled={!defendText.trim() || isSubmitting || isUploadingFile}
+                >
+                  {isSubmitting || isUploadingFile ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.submitButtonText}>Post</Text>
+                  )}
+                </Pressable>
+              </View>
+
+              <View style={styles.inputContainer}>
+                <BlurView intensity={24} tint="dark" style={StyleSheet.absoluteFill} />
+                <LinearGradient
+                  colors={['rgba(255, 255, 255, 0.08)', 'rgba(255, 255, 255, 0.03)']}
+                  style={StyleSheet.absoluteFill}
+                  pointerEvents="none"
+                />
+
+                <TextInput
+                  style={[
+                    styles.textInput,
+                    { minHeight: Math.max(56, inputHeight) },
+                  ]}
+                  placeholder="Type your response"
+                  placeholderTextColor="rgba(255, 255, 255, 0.45)"
+                  multiline
+                  value={defendText}
+                  onChangeText={setDefendText}
+                  onContentSizeChange={(e) => {
+                    const h = e.nativeEvent.contentSize.height + 12;
+                    setInputHeight(h);
+                  }}
+                />
+
+                {/* Icons overlay inside the input box; hide when there's text or media */}
+                {!defendText.trim() && !photo && !videoFile ? (
+                  <View style={styles.iconsOverlay} pointerEvents="box-none">
+                    <Pressable onPress={addphoto} style={styles.iconButtonInline} hitSlop={6}>
+                      <ImageIcon size={20} color="#9ca3af" strokeWidth={1.8} />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        router.push({
+                          pathname: '/camera',
+                          params: { threadId: null },
+                        });
+                      }}
+                      style={styles.iconButtonInline}
+                      hitSlop={6}
+                    >
+                      <Camera size={20} color="#9ca3af" strokeWidth={1.8} />
+                    </Pressable>
+                    <Pressable onPress={pickVideo} style={styles.iconButtonInline} hitSlop={6}>
+                      <VideoIcon size={20} color="#9ca3af" strokeWidth={1.8} />
+                    </Pressable>
+                  </View>
+                ) : null}
+
+                {/* Media previews with remove button */}
+                {photo ? (
+                  <View style={styles.previewContainer}>
+                    <Image source={{ uri: photo }} style={styles.postImagePreview} resizeMode="cover" />
+                    <Pressable
+                      style={styles.removeMediaBtn}
+                      onPress={() => {
+                        setPhoto('');
+                        setImageFilename(null);
+                      }}
+                    >
+                      <X size={12} color="#fff" />
+                    </Pressable>
+                  </View>
+                ) : null}
+
+                {videoFile ? (
+                  <View style={styles.previewContainer}>
+                    <DebateVideo uri={videoFile} style={styles.postVideoPreview} />
+                    <Pressable
+                      style={styles.removeMediaBtn}
+                      onPress={() => {
+                        setVideoFile('');
+                        setVideoFilename(null);
+                      }}
+                    >
+                      <X size={12} color="#fff" />
+                    </Pressable>
+                  </View>
                 ) : null}
               </View>
-
-              <View style={styles.vsContainer}>
-                <View style={styles.vsLine} />
-                <Text style={styles.vsText}>VS</Text>
-                <View style={styles.vsLine} />
-              </View>
-            </>
-          ) : (
-            <Text style={styles.errorText}>Unable to load the post.</Text>
-          )}
-
             </View>
-
-          <View style={styles.composerCard}>
-            <View style={styles.composerHeaderRow}>
-              <Text style={styles.subTitle}>Rebuttal</Text>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.submitButton,
-                  (!defendText.trim() || isSubmitting) && styles.submitButtonDisabled,
-                  pressed && styles.buttonPressed,
-                ]}
-                onPress={handleDefend}
-                disabled={!defendText.trim() || isSubmitting}
-              >
-                <Text style={styles.submitButtonText}>{isSubmitting ? 'Posting...' : 'Post'}</Text>
-              </Pressable>
-            </View>
-            <View style={styles.inputContainer}>
-              <TextInput
-                style={[
-                  styles.textInput,
-                      { minHeight: Math.max(56, inputHeight), flex: 1, color: '#f5f8ff', backgroundColor: 'transparent', borderWidth: 0, padding: 0 },
-                ]}
-                placeholder="Type your response"
-                placeholderTextColor="rgba(255,255,255,0.55)"
-                multiline
-                value={defendText}
-                onChangeText={setDefendText}
-                onContentSizeChange={(e) => {
-                  const h = e.nativeEvent.contentSize.height + 12; // add padding buffer
-                  setInputHeight(h);
-                }}
-              />
-
-              {/* Icons overlay inside the input box; hide when there's text or media */}
-              {(!defendText.trim() && !photo && !videoFile) ? (
-                <View style={styles.iconsOverlay} pointerEvents="box-none">
-                  <Pressable onPress={addphoto} style={styles.iconButtonInline}>
-                    <Images size={22} color="white" strokeWidth={1} />
-                  </Pressable>
-                  <Pressable onPress={() => { /* camera navigation if desired */ }} style={styles.iconButtonInline}>
-                    <Camera size={22} color="white" strokeWidth={1} />
-                  </Pressable>
-                  <Pressable onPress={pickVideo} style={styles.iconButtonInline}>
-                    <VideoIcon size={22} color="white" strokeWidth={1} />
-                  </Pressable>
-                </View>
-              ) : null}
-
-              {/* Media preview rendered inside the input box */}
-              {photo ? (
-                <ImageWithText
-                  textArray={[]}
-                  source={{ uri: photo }}
-                  style={styles.postImagePreview}
-                />
-              ) : null}
-              {videoFile ? (
-                <View style={styles.postVideoPreview}>
-                  <DebateVideo uri={videoFile} style={{ width: '100%', height: '100%' }} />
-                </View>
-              ) : null}
-            </View>
-          </View>
-        </VStack>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
-  </SafeAreaView>
+          </VStack>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#0a0a0c',
   },
   headerRow: {
-    marginBottom: 24,
+    marginBottom: 16,
   },
   backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 999,
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: 7,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    marginBottom: 12,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    marginBottom: 10,
   },
   backButtonText: {
-    color: '#dbe2ff',
+    color: '#e5e7eb',
     fontWeight: '700',
     fontSize: 13,
   },
   screenTitle: {
-    color: '#f8fbff',
+    color: '#ffffff',
     fontWeight: '900',
-    fontSize: 32,
-    marginBottom: 8,
-  },
-  description: {
-    color: '#aab8d7',
-    fontSize: 14,
-    lineHeight: 20,
-    maxWidth: '88%',
+    fontSize: 28,
+    letterSpacing: 0.3,
   },
   loading: {
     marginTop: 30,
   },
   postCard: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 30,
-    padding: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: 24,
+    padding: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
     shadowColor: '#000',
-    shadowOpacity: 0.16,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.35,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
     elevation: 8,
     overflow: 'hidden',
   },
   postMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 10,
   },
   badge: {
-    backgroundColor: 'rgba(116, 149, 255, 0.18)',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    marginRight: 10,
+    backgroundColor: 'rgba(34, 211, 238, 0.15)',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(34, 211, 238, 0.3)',
   },
   badgeText: {
-    color: '#d2e0ff',
-    fontSize: 11,
-    fontWeight: '700',
+    color: '#22d3ee',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   postUser: {
-    color: '#e7edff',
+    color: '#ffffff',
     fontWeight: '700',
     fontSize: 15,
   },
+  postHandle: {
+    color: '#9ca3af',
+    fontSize: 13,
+    marginLeft: 6,
+  },
   postText: {
-    color: '#eef4ff',
-    fontSize: 16,
-    lineHeight: 26,
-    marginBottom: 14,
+    color: '#f3f4f6',
+    fontSize: 15,
+    lineHeight: 23,
+    marginBottom: 8,
   },
   vsContainer: {
-    marginTop: 18,
-    marginBottom: 24,
+    marginVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -403,165 +477,158 @@ const styles = StyleSheet.create({
   vsLine: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(53, 8, 201, 0.12)',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  vsPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    marginHorizontal: 12,
   },
   vsText: {
-    color: '#c4d3ff',
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 3,
-    marginHorizontal: 18,
+    color: '#22d3ee',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1.5,
   },
   errorText: {
-    color: '#ff9ea2',
+    color: '#f87171',
     marginVertical: 18,
     fontSize: 14,
   },
   composerCard: {
-    marginTop: 18,
-    paddingTop: 0,
-    paddingBottom: 0,
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-    shadowColor: 'transparent',
-    elevation: 0,
+    marginTop: 10,
   },
   composerHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
-  },
-  composerFooterRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-    marginTop: 14,
-  },
-  replyInfo: {
-    color: '#c4d3ff',
-    fontSize: 13,
-  },
-  submitButton: {
-    backgroundColor: '#7c99ff',
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  submitButtonDisabled: {
-    backgroundColor: 'rgba(124,153,255,0.4)',
-  },
-  submitButtonText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 14,
+    marginBottom: 8,
   },
   subTitle: {
-    color: '#e8eeff',
+    color: '#e5e7eb',
     fontSize: 14,
     fontWeight: '700',
-    marginBottom: 10,
+    letterSpacing: 0.3,
   },
-  textInput: {
-    color: '#f5f8ff',
-    minHeight: 56,
-    borderRadius: 999,
-    backgroundColor: '#262a2f',
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    fontSize: 15,
-    lineHeight: 20,
-    textAlignVertical: 'top',
+  submitButton: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    marginBottom: 12,
-  },
-  inputRow: {
-    flexDirection: 'row',
+    borderColor: '#333',
+    minWidth: 70,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  submitButtonDisabled: {
+    backgroundColor: 'rgba(26, 26, 26, 0.4)',
+    borderColor: 'rgba(51, 51, 51, 0.4)',
+    opacity: 0.6,
+  },
+  submitButtonText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  buttonPressed: {
+    opacity: 0.8,
   },
   inputContainer: {
     position: 'relative',
-    backgroundColor: '#262a2f',
-    borderRadius: 999,
-    padding: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 22,
+    padding: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  textInput: {
+    color: '#ffffff',
+    fontSize: 15,
+    lineHeight: 22,
+    paddingRight: 90,
+    paddingTop: 2,
+    paddingBottom: 2,
+    paddingHorizontal: 4,
+    textAlignVertical: 'top',
   },
   iconsOverlay: {
     position: 'absolute',
     right: 12,
-    top: 12,
+    top: 14,
     flexDirection: 'row',
     gap: 8,
     alignItems: 'center',
   },
   iconButtonInline: {
-    padding: 6,
-    marginLeft: 6,
+    padding: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  previewContainer: {
+    position: 'relative',
+    width: 140,
+    height: 140,
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    marginTop: 10,
   },
   postImagePreview: {
-    width: 100,
-    height: 100,
-    borderRadius: 10,
-    marginTop: 8,
+    width: '100%',
+    height: '100%',
   },
   postVideoPreview: {
-    width: 200,
-    height: 200,
-    borderRadius: 10,
-    marginTop: 8,
-    overflow: 'hidden',
-  },
-  button: {
-    marginTop: 18,
     width: '100%',
-    backgroundColor: '#7c99ff',
-    borderRadius: 28,
+    height: '100%',
+  },
+  removeMediaBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    shadowColor: '#7c99ff',
-    shadowOpacity: 0.22,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 5,
-  },
-  buttonPressed: {
-    opacity: 0.9,
-  },
-  buttonText: {
-    color: '#ffffff',
-    fontWeight: '800',
-    fontSize: 15,
-    letterSpacing: 0.5,
-  },
-  buttonDisabled: {
-    backgroundColor: 'rgba(124,153,255,0.4)',
-    shadowOpacity: 0,
   },
   media: {
-    marginTop: 16,
-    borderRadius: 20,
+    marginTop: 12,
+    borderRadius: 16,
     overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   mediaLabel: {
-    color: '#d9e4ff',
-    marginBottom: 10,
+    color: '#9ca3af',
+    padding: 8,
     fontWeight: '600',
-    fontSize: 12,
+    fontSize: 11,
   },
   mediaImage: {
     width: '100%',
-    height: 210,
-    borderRadius: 20,
-    marginTop: 8,
+    height: 190,
+    borderRadius: 14,
+    marginTop: 6,
   },
   mediaVideo: {
     width: '100%',
-    height: 230,
+    height: 200,
     backgroundColor: '#000',
   },
 });

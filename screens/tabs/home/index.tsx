@@ -218,6 +218,8 @@ const RemoveRepost = async (orig: Post) => {
 
   const feedPosts = React.useMemo(() => {
     return sortedPosts.filter((post) => {
+      // Hide post replies and debate counters from the main root feed
+      if (post.parent_id) return false;
       // Hide repost entries created by current user.
       return !(post.repost_user_id && post.repost_user_id === currentUser?.id);
     });
@@ -274,9 +276,10 @@ const RemoveRepost = async (orig: Post) => {
           const isReposted = (posts ?? []).some(
             p => p.parent_id === post.id && p.repost_user_id === currentUser?.id
           );
-          // Get the original post for debate display
           const originalPost = post.parent_id ? posts?.find(p => p.id === post.parent_id) : post;
-            const imageUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user?.id}/${post.user?.avatar}`;
+          const isOwnPost = Boolean(currentUser?.id && (originalPost?.user_id === currentUser.id || post.user_id === currentUser.id));
+          const canDebate = isSelectedAsDebate && !isOwnPost && !hasExistingDebate;
+          const imageUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${post.user?.id}/${post.user?.avatar}`;
           return (
           <React.Fragment key={post.id}>
             <View style={styles.postCard}>
@@ -347,11 +350,9 @@ const RemoveRepost = async (orig: Post) => {
                )}
                 {debates.filter((d) => d.root_post_id === originalPostId).map((debate) => (
                       <View key={debate.id} style={{ marginTop: 8 }}>
-
                         {/* ORIGINAL ARGUMENT */}
                         <View style={styles.argumentBox}>
                           <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                            
                             {originalPost?.user?.avatar ? (
                               <Image
                                 source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${originalPost.user.id}/${originalPost.user.avatar}` }}
@@ -376,43 +377,34 @@ const RemoveRepost = async (orig: Post) => {
 
                               {renderPostText(originalPost?.text)}
 
-                                {originalPost?.file && originalPost.file.endsWith('.mp4') ? (
-                                  <PostVideo 
-                                    uri={`${Image_Url}${originalPost.user_id}/${originalPost.file}`}
-                                    isVisible={!!originalPost.file}
-                                  />
-                                ) : (
-                                  <Image
-                                    source={{ uri: `${Image_Url}${originalPost?.user_id}/${originalPost?.file}` }}
-                                    style={{ 
-                                      width: !!originalPost?.file ? '100%' : 0, 
-                                      height: !!originalPost?.file ? 200 : 0, 
-                                      borderRadius: !!originalPost?.file ? 10 : 0, 
-                                      marginTop: !!originalPost?.file ? 8 : 0 
-                                    }}
-                                  />
-                                )}
+                              {originalPost?.file && originalPost.file.endsWith('.mp4') ? (
+                                <PostVideo 
+                                  uri={`${Image_Url}${originalPost.user_id}/${originalPost.file}`}
+                                  isVisible={!!originalPost.file}
+                                />
+                              ) : originalPost?.file ? (
+                                <Image
+                                  source={{ uri: `${Image_Url}${originalPost?.user_id}/${originalPost?.file}` }}
+                                  style={{ 
+                                    width: !!originalPost?.file ? '100%' : 0, 
+                                    height: !!originalPost?.file ? 200 : 0, 
+                                    borderRadius: !!originalPost?.file ? 10 : 0, 
+                                    marginTop: !!originalPost?.file ? 8 : 0 
+                                  }}
+                                />
+                              ) : null}
                             </View>
-
                           </View>
                         </View>
 
-                        
-
                         {/* VS */}
-                        <Text style={{
-                          color: '#888',
-                          textAlign: 'center',
-                          marginVertical: 6,
-                          fontSize: 12
-                        }}>
+                        <Text style={styles.vsText}>
                           ──── VS ────
                         </Text>
 
                         {/* COUNTER ARGUMENT */}
                         <View style={styles.argumentBox}>
                           <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                            
                             {debate.challenger?.avatar ? (
                               <Image
                                 source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${debate.challenger?.id}/${debate.challenger?.avatar}` }}
@@ -436,10 +428,8 @@ const RemoveRepost = async (orig: Post) => {
                               </View>
                               {renderPostText(debate.challenger_text)}
                             </View>
-
                           </View>
                         </View>
-
                       </View>
                   ))}
 
@@ -492,7 +482,7 @@ const RemoveRepost = async (orig: Post) => {
                       style={styles.actionIconDebateButton}
                       onPress={() =>
                         router.push({
-                          pathname: '/debateScreen',
+                          pathname: '/mainDebate',
                           params: { postId: originalPostId },
                         })
                       }
@@ -502,7 +492,7 @@ const RemoveRepost = async (orig: Post) => {
                         <Text style={styles.buttonText}>Vote</Text>
                       </View>
                     </Pressable>
-                  ) : isSelectedAsDebate === true ? (
+                  ) : canDebate ? (
                     <Pressable
                       style={styles.actionIconDebateButton}
                       onPress={() =>
@@ -522,7 +512,7 @@ const RemoveRepost = async (orig: Post) => {
                       style={styles.actionIconDebateButton}
                       onPress={() =>
                         router.push({
-                          pathname: '/debateScreen',
+                          pathname: '/mainDebate',
                           params: { postId: originalPostId },
                         })
                       }
@@ -567,6 +557,12 @@ const styles = StyleSheet.create({
   borderWidth: 0.5,
   borderColor: '#343232', // 
 },
+ vsText: {
+   color: '#888',
+   textAlign: 'center',
+   marginVertical: 6,
+   fontSize: 12,
+ },
 
   actionIcon: {
     padding: 4,
@@ -730,6 +726,51 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     marginLeft: 1,
+  },
+  ongoingDebateBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(34, 211, 238, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 211, 238, 0.25)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  ongoingDebateLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  ongoingDebatePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(34, 211, 238, 0.18)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  ongoingDebateBadgeText: {
+    color: '#22d3ee',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  ongoingDebateSubtitle: {
+    color: '#9ca3af',
+    fontSize: 12,
+    fontWeight: '500',
+    maxWidth: '50%',
+  },
+  ongoingDebateViewPrompt: {
+    color: '#22d3ee',
+    fontSize: 12,
+    fontWeight: '700',
   },
   debatePanel: {
     marginTop: 8,
