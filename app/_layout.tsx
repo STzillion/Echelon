@@ -1,14 +1,12 @@
-import { useFonts } from 'expo-font';
-import React from 'react';
-import "@/global.css";
 import { GluestackUIProvider } from "@/components/ui/gluestack-ui-provider";
-import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
+import "@/global.css";
 import { AuthProvider } from '@/providers/AuthProvider';
 import { PostsProvider } from '@/providers/PostsProvider';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { S } from '@expo/html-elements';
+import { useFonts } from 'expo-font';
+import { Stack } from 'expo-router';
+import React from 'react';
+import 'react-native-reanimated';
 
 
 
@@ -33,7 +31,10 @@ export default function RootLayout() {
               <Stack.Screen name="(auth)" options={{ headerShown: false}} />
               <Stack.Screen name="post" options={{ headerShown: false, presentation:'modal' }} />
               <Stack.Screen name="camera" options={{ headerShown: false, presentation:'modal' }} />
-              <Stack.Screen name="mainDebate" options={{ headerShown: false }} />
+              <Stack.Screen
+                name="mainDebate"
+                options={{ headerShown: false, contentStyle: { backgroundColor: '#0f0f0f' } }}
+              />
               <Stack.Screen name="user" options={{ headerShown: false }} />
               <Stack.Screen name="+not-found" />
             </Stack>

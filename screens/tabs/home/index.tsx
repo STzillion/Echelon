@@ -13,6 +13,7 @@ import {
   Image,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -167,7 +168,7 @@ const RemoveRepost = async (orig: Post) => {
     const cursor = reset ? null : feedCursor;
     let rootQuery = supabase
       .from('Post')
-      .select('*, user:User!user_id(*), likes:Like(*)')
+      .select('*, user:User!user_id(*), likes:Like(*), comments:Comment(id)')
       .is('parent_id', null)
       .order('created_at', { ascending: false })
       .range(0, 19);
@@ -292,8 +293,15 @@ const RemoveRepost = async (orig: Post) => {
 
 
 
-  const renderPostText = (text?: string) => {
+  const renderPostText = (text?: string, compact = false) => {
     if (!text) return null;
+    if (Platform.OS === 'web') {
+      return (
+        <Text style={[styles.postText, compact ? styles.webArgumentText : styles.webPostText]}>
+          {text}
+        </Text>
+      );
+    }
     const parts = Array.from(text.matchAll(regex), (m) => m[0]);
     return (
       <Text style={styles.postText}>
@@ -312,14 +320,14 @@ const RemoveRepost = async (orig: Post) => {
 
   // try to show all posts
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, Platform.OS === 'web' && styles.webColumn]}>
       {/* logo header */}
-       <View style={styles.header}>
+       <View style={[styles.header, Platform.OS === 'web' && styles.webHeader]}>
         <View style={styles.leftContainer}>
-          <View style={styles.logoCircle}>
+          <View style={[styles.logoCircle, Platform.OS === 'web' && styles.webLogoCircle]}>
             <Image
               source={require('@/assets/images/EchelonLogo3d.png')} 
-              style={styles.logo}
+              style={[styles.logo, Platform.OS === 'web' && styles.webLogo]}
               resizeMode="contain"
             />
           </View>
@@ -328,11 +336,19 @@ const RemoveRepost = async (orig: Post) => {
       {/* Feed */}
       <ScrollView
         style={styles.feed}
-        contentContainerStyle={{ paddingBottom: 32 }}
+        contentContainerStyle={{ paddingBottom: Platform.OS === 'web' ? 100 : 32 }}
         showsVerticalScrollIndicator={false}
         onScroll={handleFeedScroll}
         scrollEventThrottle={250}
-        refreshControl={ <RefreshControl refreshing={refreshing} onRefresh={onRefresh} /> }
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#22d3ee"
+            colors={['#22d3ee']}
+            progressBackgroundColor="#1b1b1b"
+          />
+        }
       >
         {(posts?.length ?? 0) === 0 ? (
           <Text style={{ color: 'gray', textAlign: 'center', marginTop: 24 }}>No posts yet.</Text>
@@ -438,7 +454,7 @@ const RemoveRepost = async (orig: Post) => {
                 {debates.filter((d) => d.root_post_id === originalPostId).map((debate) => (
                       <View key={debate.id} style={{ marginTop: 8 }}>
                         {/* ORIGINAL ARGUMENT */}
-                        <View style={styles.argumentBox}>
+                        <View style={[styles.argumentBox, Platform.OS === 'web' && styles.webArgumentBox]}>
                           <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
                             {originalPost?.user?.avatar ? (
                               <Image
@@ -456,13 +472,13 @@ const RemoveRepost = async (orig: Post) => {
 
                             <View style={{ flex: 1 }}>
                               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <Text style={styles.username}>{originalPost?.user?.username}</Text>
+                                <Text style={[styles.username, Platform.OS === 'web' && styles.webArgumentUsername]}>{originalPost?.user?.username}</Text>
                                 <Text style={{ fontSize: 12, color: '#888', marginLeft: 4 }}>
                                   {timeAgo(originalPost?.created_at || '')}
                                 </Text>
                               </View>
 
-                              {renderPostText(originalPost?.text)}
+                              {renderPostText(originalPost?.text, true)}
 
                               {originalPost?.file && originalPost.file.endsWith('.mp4') ? (
                                 <PostVideo 
@@ -474,7 +490,7 @@ const RemoveRepost = async (orig: Post) => {
                                   source={{ uri: `${Image_Url}${originalPost?.user_id}/${originalPost?.file}` }}
                                   style={{ 
                                     width: !!originalPost?.file ? '100%' : 0, 
-                                    height: !!originalPost?.file ? 200 : 0, 
+                                    height: !!originalPost?.file ? (Platform.OS === 'web' ? 150 : 200) : 0, 
                                     borderRadius: !!originalPost?.file ? 10 : 0, 
                                     marginTop: !!originalPost?.file ? 8 : 0 
                                   }}
@@ -490,7 +506,7 @@ const RemoveRepost = async (orig: Post) => {
                         </Text>
 
                         {/* COUNTER ARGUMENT */}
-                        <View style={styles.argumentBox}>
+                        <View style={[styles.argumentBox, Platform.OS === 'web' && styles.webArgumentBox]}>
                           <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
                             {debate.challenger?.avatar ? (
                               <Image
@@ -508,12 +524,12 @@ const RemoveRepost = async (orig: Post) => {
 
                             <View style={{ flex: 1 }}>
                               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <Text style={styles.username}>{debate.challenger?.username}</Text>
+                                <Text style={[styles.username, Platform.OS === 'web' && styles.webArgumentUsername]}>{debate.challenger?.username}</Text>
                                 <Text style={{ fontSize: 12, color: '#888', marginLeft: 4 }}>
                                   {timeAgo(debate?.created_at)}
                                 </Text>
                               </View>
-                              {renderPostText(debate.challenger_text)}
+                              {renderPostText(debate.challenger_text, true)}
                             </View>
                           </View>
                         </View>
@@ -538,9 +554,22 @@ const RemoveRepost = async (orig: Post) => {
                       <Text style={styles.likeCount}>{displayPost.likes!.length}</Text>
                     )}
                   </View>
-                  <Pressable style={styles.actionIcon}>
-                    <MessageCircle size={20} color="#b0b0b0" />
-                  </Pressable>
+                  <View style={styles.commentGroup}>
+                    <Pressable
+                      style={styles.actionIcon}
+                      onPress={() =>
+                        router.push({
+                          pathname: '/mainDebate',
+                          params: { postId: originalPostId },
+                        })
+                      }
+                    >
+                      <MessageCircle size={20} color="#b0b0b0" />
+                    </Pressable>
+                    {(originalPost?.comments?.length ?? 0) > 0 && (
+                      <Text style={styles.commentCount}>{originalPost!.comments!.length}</Text>
+                    )}
+                  </View>
 
                
                   <View style={styles.repostGroup}>
@@ -629,6 +658,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0f0f0f',
   },
+  webColumn: {
+    width: '100%',
+    maxWidth: 500,
+    alignSelf: 'center',
+  },
   usernameNoMargin: {
   marginLeft: 0,
   color: 'white',
@@ -644,6 +678,21 @@ const styles = StyleSheet.create({
   borderWidth: 0.5,
   borderColor: '#343232', // 
 },
+ webArgumentBox: {
+  padding: 5,
+  marginTop: 3,
+  borderRadius: 8,
+  minHeight: 0,
+  height: 'auto',
+ },
+ webArgumentUsername: {
+  fontSize: 13,
+ },
+ webArgumentText: {
+  fontSize: 12.5,
+  lineHeight: 1.36,
+  marginBottom: 2,
+ },
  vsText: {
    color: '#888',
    textAlign: 'center',
@@ -684,6 +733,19 @@ const styles = StyleSheet.create({
     paddingVertical: 26,
     borderBottomWidth: 1,
     borderBottomColor: '#333',
+  },
+  webHeader: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  webLogoCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  webLogo: {
+    width: 58,
+    height: 58,
   },
     logo: {
     width: 100,
@@ -735,6 +797,12 @@ const styles = StyleSheet.create({
     lineHeight: 22,          // increased line height for better spacing
     marginBottom: 5,
   },
+  webPostText: {
+    color: '#fff',
+    fontSize: 12.5,
+    lineHeight: 1.36,
+    marginBottom: 2,
+  },
   likeCount: {
     color: '#b0b0b0',
     fontSize: 13,
@@ -744,6 +812,16 @@ const styles = StyleSheet.create({
   likeGroup: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  commentGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  commentCount: {
+    color: '#b0b0b0',
+    fontSize: 13,
+    fontWeight: '600',
+    marginLeft: 1,
   },
   actionsRow: {
     flexDirection: 'row',

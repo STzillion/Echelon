@@ -21,11 +21,12 @@ model User {
   avatar     String?
   created_at DateTime @default(now())
 
-  posts      Post[]   @relation("User")
-  repostedPosts Post[] @relation("RepostUser")
-  reposts    Repost[]   @relation("RepostRecordUser")
-  likes      Like[]
+  posts          Post[]          @relation("User")
+  repostedPosts  Post[]          @relation("RepostUser")
+  reposts        Repost[]        @relation("RepostRecordUser")
+  likes          Like[]
   debateSegments DebateSegment[] @relation("DebateSegmentSpeaker")
+  comments       Comment[]       @relation("CommentSpeaker")
 
   // ADD THESE
   debates_challenging Debate[] @relation("DebateChallenger")
@@ -33,27 +34,28 @@ model User {
 }
 
 model Post {
-  id               String   @id
-  user_id          String
-  user             User     @relation("User", fields: [user_id], references: [id], onDelete: Cascade)
-  parent_id        String?
-  parent           Post?    @relation(name:"Posts", fields: [parent_id], references: [id], onDelete: Cascade)
-  text             String?
-  file             String?
-  repost_user_id   String?
-  repost_user      User?    @relation("RepostUser", fields: [repost_user_id], references: [id])
-  tag_name         String?
-  created_at       DateTime @default(now())
-  Post             Post[]   @relation("Posts")
-  reposts          Repost[] @relation("PostRepostRecords")
-  debate_id        String?
-  debate_side      String?
-  debate           Debate?  @relation("PostToDebate", fields: [debate_id], references: [id])
-  debateRoot       Debate?  @relation("DebateRootPost")
-  debateSegments   DebateSegment[] @relation("PostDebateSegments")
-  likes            Like[]
-  tag_id           String?
-  Tags             Tag?     @relation(fields: [tag_name], references: [name])
+  id             String          @id
+  user_id        String
+  user           User            @relation("User", fields: [user_id], references: [id], onDelete: Cascade)
+  parent_id      String?
+  parent         Post?           @relation(name: "Posts", fields: [parent_id], references: [id], onDelete: Cascade)
+  text           String?
+  file           String?
+  repost_user_id String?
+  repost_user    User?           @relation("RepostUser", fields: [repost_user_id], references: [id])
+  tag_name       String?
+  created_at     DateTime        @default(now())
+  Post           Post[]          @relation("Posts")
+  reposts        Repost[]        @relation("PostRepostRecords")
+  debate_id      String?
+  debate_side    String?
+  debate         Debate?         @relation("PostToDebate", fields: [debate_id], references: [id])
+  debateRoot     Debate?         @relation("DebateRootPost")
+  debateSegments DebateSegment[] @relation("PostDebateSegments")
+  likes          Like[]
+  tag_id         String?
+  Tags           Tag?            @relation(fields: [tag_name], references: [name])
+  comments       Comment[]       @relation("PostComments")
 }
 
 model Tag {
@@ -72,11 +74,11 @@ model Debate {
   challenger_text String?
   created_at      DateTime @default(now())
 
-  root_post       Post     @relation("DebateRootPost", fields: [root_post_id], references: [id], onDelete: Cascade)
-  challenger      User     @relation("DebateChallenger", fields: [challenger_id], references: [id], onDelete: Cascade)
-  opponent        User?    @relation("DebateOpponent", fields: [opponent_id], references: [id], onDelete: Cascade)
-  posts           Post[]   @relation("PostToDebate")
-  segments        DebateSegment[] @relation("DebateSegments")
+  root_post  Post            @relation("DebateRootPost", fields: [root_post_id], references: [id], onDelete: Cascade)
+  challenger User            @relation("DebateChallenger", fields: [challenger_id], references: [id], onDelete: Cascade)
+  opponent   User?           @relation("DebateOpponent", fields: [opponent_id], references: [id], onDelete: Cascade)
+  posts      Post[]          @relation("PostToDebate")
+  segments   DebateSegment[] @relation("DebateSegments")
 }
 
 model DebateSegment {
@@ -90,37 +92,70 @@ model DebateSegment {
   round_number Int
   created_at   DateTime @default(now())
 
-  debate       Debate   @relation("DebateSegments", fields: [debate_id], references: [id], onDelete: Cascade)
-  post         Post     @relation("PostDebateSegments", fields: [post_id], references: [id], onDelete: Cascade)
-  speaker      User     @relation("DebateSegmentSpeaker", fields: [speaker_id], references: [id], onDelete: Cascade)
+  debate  Debate @relation("DebateSegments", fields: [debate_id], references: [id], onDelete: Cascade)
+  post    Post   @relation("PostDebateSegments", fields: [post_id], references: [id], onDelete: Cascade)
+  speaker User   @relation("DebateSegmentSpeaker", fields: [speaker_id], references: [id], onDelete: Cascade)
 
   @@index([debate_id, round_number])
 }
 
 model Like {
-  id                    String   @id @default(dbgenerated("uuid_generate_v4()"))
-  user_id               String
-  user                  User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  post_id               String
-  post                  Post     @relation(fields: [post_id], references: [id], onDelete: Cascade)
-  post_text             String?
-  user_username         String?
-  created_at DateTime   @default(now())
-}
-
-
-model Repost {
   id            String   @id @default(dbgenerated("uuid_generate_v4()"))
   user_id       String
-  post_id       String
+  user          User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  post_id       String?
+  post          Post?    @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  comment_id    String?
+  comment       Comment? @relation(fields: [comment_id], references: [id], onDelete: Cascade)
+  post_text     String?
+  user_username String?
   created_at    DateTime @default(now())
 
-  user          User     @relation("RepostRecordUser", fields: [user_id], references: [id], onDelete: Cascade)
-  post          Post     @relation("PostRepostRecords", fields: [post_id], references: [id], onDelete: Cascade)
+  @@index([comment_id])
+}
 
+model Repost {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()"))
+  user_id    String
+  post_id    String?
+  comment_id String?
+  created_at DateTime @default(now())
+
+  user    User     @relation("RepostRecordUser", fields: [user_id], references: [id], onDelete: Cascade)
+  post    Post?    @relation("PostRepostRecords", fields: [post_id], references: [id], onDelete: Cascade)
+  comment Comment? @relation("CommentRepostRecords", fields: [comment_id], references: [id], onDelete: Cascade)
 
   post_text     String?
   user_username String?
 
   @@unique([user_id, post_id])
+  @@unique([user_id, comment_id])
+}
+
+model Comment {
+  id                  String   @id @default(dbgenerated("uuid_generate_v4()"))
+  post_id             String
+  speaker_id          String
+  text                String?
+  file                String?
+  repost_id           String?
+  parent_comment_id   String?
+  reply_to_comment_id String?
+  is_debatable        Boolean  @default(false)
+  created_at          DateTime @default(now())
+
+  post               Post      @relation("PostComments", fields: [post_id], references: [id], onDelete: Cascade)
+  speaker            User      @relation("CommentSpeaker", fields: [speaker_id], references: [id], onDelete: Cascade)
+  likes              Like[]
+  reposts            Repost[]  @relation("CommentRepostRecords")
+  repost             Comment?  @relation("CommentRepost", fields: [repost_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  repostedByComments Comment[] @relation("CommentRepost")
+  parentComment      Comment?  @relation("CommentReplies", fields: [parent_comment_id], references: [id], onDelete: Cascade)
+  replies            Comment[] @relation("CommentReplies")
+  replyToComment     Comment?  @relation("CommentReplyTarget", fields: [reply_to_comment_id], references: [id], onDelete: SetNull)
+  targetedReplies    Comment[] @relation("CommentReplyTarget")
+
+  @@index([post_id])
+  @@index([parent_comment_id])
+  @@index([reply_to_comment_id])
 }

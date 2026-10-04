@@ -4,15 +4,15 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/providers/AuthProvider';
 import { Post, User, usedPosts } from '@/providers/PostsProvider';
 import { useUploadFile } from '@/providers/uploadfile';
+import { PostVideo } from '@/screens/video/postVideo';
 import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
-import React, { useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { EyeIcon, Heart, MessageCircle, Repeat, Swords, VoteIcon } from 'lucide-react-native';
-import { PostVideo } from '@/screens/video/postVideo';
+import React, { useState } from 'react';
+import { Alert, Image, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const Image_Url = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/`;
 const regex = /(#\w+)|(@\w+)|([^#@]+)/g;
@@ -62,6 +62,36 @@ export default ({ user }: { user?: User }) => {
     ? `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${user?.id}/${avatarName}`
     : undefined;
   const [userDebates, setUserDebates] = React.useState<any[]>([]);
+  const [userReposts, setUserReposts] = React.useState<any[]>([]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!user?.id) {
+        setUserReposts([]);
+        return;
+      }
+
+      let cancelled = false;
+      supabase
+        .from('Repost')
+        .select('*, post:Post!post_id(*, user:User!user_id(*), likes:Like(*))')
+        .eq('user_id', user.id)
+        .not('post_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .then(({ data, error }) => {
+          if (cancelled) return;
+          if (error) {
+            console.warn('Could not load user reposts:', error.message);
+            return;
+          }
+          setUserReposts(data ?? []);
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }, [user?.id])
+  );
 
   React.useEffect(() => {
     if (!user?.id) {
@@ -92,7 +122,25 @@ export default ({ user }: { user?: User }) => {
   const displayedPosts = React.useMemo(() => {
     if (!posts || !user?.id) return [];
     if (activeTab === 'reposts') {
-      return posts.filter((post) => post.repost_user_id === user.id);
+      const repostsByPostId = new Map<string, Post>();
+      posts
+        .filter((post) => post.repost_user_id === user.id)
+        .forEach((post) => repostsByPostId.set(post.parent_id || post.id, post));
+
+      userReposts.forEach((repost) => {
+        const originalPost = repost.post as Post | null;
+        if (!originalPost?.id || repostsByPostId.has(originalPost.id)) return;
+        repostsByPostId.set(originalPost.id, {
+          ...originalPost,
+          repost_user_id: user.id,
+          repost_user: { id: user.id, username: user.username },
+          created_at: repost.created_at,
+        });
+      });
+
+      return [...repostsByPostId.values()].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
     }
     if (activeTab === 'replies') {
       const sortedDebates = [...userDebates].sort(
@@ -104,13 +152,13 @@ export default ({ user }: { user?: User }) => {
         .filter((p): p is Post => Boolean(p));
     }
     return posts.filter((post) => post.user_id === user.id && !post.parent_id && !post.repost_user_id);
-  }, [activeTab, posts, user?.id, userDebates]);
+  }, [activeTab, posts, user?.id, user?.username, userDebates, userReposts]);
 
-  const renderPostText = (text?: string) => {
+  const renderPostText = (text?: string, compact = false) => {
     if (!text) return null;
     const parts = Array.from(text.matchAll(regex), (m) => m[0]);
     return (
-      <Text style={styles.postText}>
+      <Text style={[styles.postText, Platform.OS === 'web' && (compact ? styles.webArgumentText : styles.webPostText)]}>
         {parts.map((part, i) =>
           part.startsWith('#') ? (
             <Text key={i} style={{ fontWeight: 'bold' }}>
@@ -139,25 +187,55 @@ export default ({ user }: { user?: User }) => {
 
   const toggleRepost = async (post: Post) => {
     if (!authUser?.id) return;
-    const reposted = (posts ?? []).some(
-      (item) => item.parent_id === post.id && item.repost_user_id === authUser.id
+    const originalPostId = post.parent_id || post.id;
+    const legacyRepost = (posts ?? []).some(
+      (item) => item.parent_id === originalPostId && item.repost_user_id === authUser.id
     );
-    if (reposted) {
-      await supabase
-        .from('Post')
-        .delete()
-        .eq('parent_id', post.id)
-        .eq('repost_user_id', authUser.id);
+    const { data: repostRecord, error: repostLookupError } = await supabase
+      .from('Repost')
+      .select('id')
+      .eq('post_id', originalPostId)
+      .eq('user_id', authUser.id)
+      .maybeSingle();
+    if (repostLookupError) {
+      console.error('Could not check repost status:', repostLookupError);
+      return;
+    }
+
+    if (legacyRepost || repostRecord) {
+      const [{ error: postError }, { error: repostError }] = await Promise.all([
+        supabase
+          .from('Post')
+          .delete()
+          .eq('parent_id', originalPostId)
+          .eq('repost_user_id', authUser.id),
+        supabase
+          .from('Repost')
+          .delete()
+          .eq('post_id', originalPostId)
+          .eq('user_id', authUser.id),
+      ]);
+      if (postError || repostError) {
+        console.error('Could not remove repost:', postError || repostError);
+        return;
+      }
+      setUserReposts((current) =>
+        current.filter((item) => !(item.post_id === originalPostId && item.user_id === authUser.id))
+      );
     } else {
-      await supabase.from('Post').insert({
+      const { error } = await supabase.from('Post').insert({
         id: Crypto.randomUUID(),
         user_id: post.user_id,
-        parent_id: post.id,
+        parent_id: originalPostId,
         text: post.text,
         file: post.file,
         tag_name: post.tag_name,
         repost_user_id: authUser.id,
       });
+      if (error) {
+        console.error('Could not create repost:', error);
+        return;
+      }
     }
     await refetch();
   };
@@ -250,7 +328,7 @@ export default ({ user }: { user?: User }) => {
     }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, Platform.OS === 'web' && styles.webColumn]}>
      
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -282,7 +360,7 @@ export default ({ user }: { user?: User }) => {
           ) : null}
         </View>
 
-        <Text size="sm" style={styles.bioText}>
+        <Text size="sm" style={[styles.bioText, Platform.OS === 'web' && styles.webBioText]}>
           Still processing... ?? | Just a huge nerd ?? | CS student
         </Text>
 
@@ -311,7 +389,7 @@ export default ({ user }: { user?: User }) => {
             <Text size="lg" bold style={styles.feedTitle}>
               {activeTab === 'opinions' ? 'Opinions' : activeTab === 'replies' ? 'Debates' : 'Reposts'}
             </Text>
-            <Text size="sm" style={styles.feedDescription}>
+            <Text size="sm" style={[styles.feedDescription, Platform.OS === 'web' && styles.webFeedDescription]}>
               {activeTab === 'opinions'
                 ? 'No opinions yet.'
                 : activeTab === 'replies'
@@ -333,8 +411,10 @@ export default ({ user }: { user?: User }) => {
               const showDirectPost = activeTab === 'opinions' || !hasDebate;
               const showDebateBoxes = activeTab !== 'opinions' && hasDebate;
               const isReposted = (posts ?? []).some(
-                (item) => item.parent_id === post.id && item.repost_user_id === authUser?.id
-              );
+                (item) => item.parent_id === (post.parent_id || post.id) && item.repost_user_id === authUser?.id
+              ) || (authUser?.id === user?.id && userReposts.some(
+                (item) => item.post_id === (post.parent_id || post.id) && item.user_id === authUser.id
+              ));
               const originalPost = post.parent_id ? posts?.find((p) => p.id === post.parent_id) : post;
               const isOwnPost = Boolean(authUser?.id && (originalPost?.user_id === authUser.id || post.user_id === authUser.id));
               const canDebate = isSelectedAsDebate && !isOwnPost && !hasDebate;
@@ -348,7 +428,7 @@ export default ({ user }: { user?: User }) => {
 
               return (
                 <React.Fragment key={post.id}>
-                  <View style={styles.postCard}>
+                  <View style={[styles.postCard, Platform.OS === 'web' && styles.webPostCard]}>
                     {post.user?.avatar ? (
                       <Image
                         source={{ uri: imageUrl }}
@@ -405,7 +485,7 @@ export default ({ user }: { user?: User }) => {
                       {showDebateBoxes && postDebates.map((debate) => (
                         <View key={debate.id} style={{ marginTop: 8 }}>
                           {/* ORIGINAL ARGUMENT */}
-                          <View style={styles.argumentBox}>
+                          <View style={[styles.argumentBox, Platform.OS === 'web' && styles.webArgumentBox]}>
                             <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
                               {originalPost?.user?.avatar ? (
                                 <Image
@@ -423,13 +503,13 @@ export default ({ user }: { user?: User }) => {
 
                               <View style={{ flex: 1 }}>
                                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                  <Text style={styles.username}>{originalPost?.user?.username}</Text>
+                                  <Text style={[styles.username, Platform.OS === 'web' && styles.webArgumentUsername]}>{originalPost?.user?.username}</Text>
                                   <Text style={{ fontSize: 12, color: '#888', marginLeft: 4 }}>
                                     {timeAgo(originalPost?.created_at || '')}
                                   </Text>
                                 </View>
 
-                                {renderPostText(originalPost?.text)}
+                                {renderPostText(originalPost?.text, true)}
 
                                 {originalPost?.file && originalPost.file.endsWith('.mp4') ? (
                                   <PostVideo
@@ -441,7 +521,7 @@ export default ({ user }: { user?: User }) => {
                                     source={{ uri: `${Image_Url}${originalPost.user_id}/${originalPost.file}` }}
                                     style={{
                                       width: '100%',
-                                      height: 200,
+                                      height: Platform.OS === 'web' ? 150 : 200,
                                       borderRadius: 10,
                                       marginTop: 8,
                                     }}
@@ -457,7 +537,7 @@ export default ({ user }: { user?: User }) => {
                           </Text>
 
                           {/* COUNTER ARGUMENT */}
-                          <View style={styles.argumentBox}>
+                          <View style={[styles.argumentBox, Platform.OS === 'web' && styles.webArgumentBox]}>
                             <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
                               {debate.challenger?.avatar ? (
                                 <Image
@@ -475,12 +555,12 @@ export default ({ user }: { user?: User }) => {
 
                               <View style={{ flex: 1 }}>
                                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                  <Text style={styles.username}>{debate.challenger?.username}</Text>
+                                  <Text style={[styles.username, Platform.OS === 'web' && styles.webArgumentUsername]}>{debate.challenger?.username}</Text>
                                   <Text style={{ fontSize: 12, color: '#888', marginLeft: 4 }}>
                                     {timeAgo(debate?.created_at)}
                                   </Text>
                                 </View>
-                                {renderPostText(debate.challenger_text)}
+                                {renderPostText(debate.challenger_text, true)}
                               </View>
                             </View>
                           </View>
@@ -488,7 +568,7 @@ export default ({ user }: { user?: User }) => {
                       ))}
 
                       {/* ACTIONS ROW */}
-                      <View style={styles.actionsRow}>
+                      <View style={[styles.actionsRow, Platform.OS === 'web' && styles.webActionsRow]}>
                         <View style={styles.likeGroup}>
                           <Pressable onPress={() => toggleLike(post)} style={styles.actionIcon}>
                             <Heart size={20} color={isLiked ? 'red' : 'grey'} fill={isLiked ? 'red' : 'transparent'} />
@@ -576,6 +656,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0f0f0f',
   },
+  webColumn: {
+    width: '100%',
+    maxWidth: 500,
+    alignSelf: 'center',
+  },
   topBar: {
     width: '100%',
     paddingHorizontal: 20,
@@ -634,6 +719,9 @@ const styles = StyleSheet.create({
     color: '#d1d5db',
     lineHeight: 22,
   },
+  webBioText: {
+    lineHeight: 1.5,
+  },
   tabRow: {
     width: '100%',
     flexDirection: 'row',
@@ -690,6 +778,9 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 1,
   },
+  webPostCard: {
+    marginHorizontal: -10,
+  },
   avatarSmall: {
     width: 35,
     height: 35,
@@ -737,6 +828,16 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 5,
   },
+  webPostText: {
+    fontSize: 12.5,
+    lineHeight: 1.36,
+    marginBottom: 2,
+  },
+  webArgumentText: {
+    fontSize: 12.5,
+    lineHeight: 1.36,
+    marginBottom: 2,
+  },
   argumentBox: {
     backgroundColor: '#181818',
     borderRadius: 12,
@@ -744,6 +845,14 @@ const styles = StyleSheet.create({
     marginTop: 8,
     borderWidth: 0.5,
     borderColor: '#343232',
+  },
+  webArgumentBox: {
+    padding: 5,
+    marginTop: 3,
+    borderRadius: 8,
+  },
+  webArgumentUsername: {
+    fontSize: 13,
   },
   vsText: {
     color: '#888',
@@ -756,6 +865,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 12,
     gap: 36,
+  },
+  webActionsRow: {
+    marginTop: 4,
   },
   likeGroup: {
     flexDirection: 'row',
@@ -833,5 +945,8 @@ const styles = StyleSheet.create({
   feedDescription: {
     color: '#9ca3af',
     lineHeight: 22,
+  },
+  webFeedDescription: {
+    lineHeight: 1.5,
   },
 });
