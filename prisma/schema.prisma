@@ -56,6 +56,12 @@ model Post {
   tag_id         String?
   Tags           Tag?            @relation(fields: [tag_name], references: [name])
   comments       Comment[]       @relation("PostComments")
+
+  // Set when this Post is a repost of a Comment
+  source_comment_id String?
+  source_comment    Comment? @relation("CommentRepostPosts", fields: [source_comment_id], references: [id], onDelete: Cascade)
+
+  @@index([source_comment_id])
 }
 
 model Tag {
@@ -154,6 +160,7 @@ model Comment {
   replies            Comment[] @relation("CommentReplies")
   replyToComment     Comment?  @relation("CommentReplyTarget", fields: [reply_to_comment_id], references: [id], onDelete: SetNull)
   targetedReplies    Comment[] @relation("CommentReplyTarget")
+  repostPosts        Post[]    @relation("CommentRepostPosts")
 
   @@index([post_id])
   @@index([parent_comment_id])

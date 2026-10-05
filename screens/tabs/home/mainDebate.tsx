@@ -210,6 +210,23 @@ export default function MainDebateScreen() {
           if (originalPost) postData = originalPost;
         }
 
+        // A reposted comment opens the debate/post the comment was made on
+        if (data?.source_comment_id) {
+          const { data: sourceComment } = await supabase
+            .from('Comment')
+            .select('post_id')
+            .eq('id', data.source_comment_id)
+            .maybeSingle();
+          if (sourceComment?.post_id) {
+            const { data: sourcePost } = await supabase
+              .from('Post')
+              .select('*, user:User!user_id(*), likes:Like(*)')
+              .eq('id', sourceComment.post_id)
+              .maybeSingle();
+            if (sourcePost) postData = sourcePost;
+          }
+        }
+
         setRootPost(postData as any);
       }
 
@@ -577,7 +594,19 @@ export default function MainDebateScreen() {
       post_text: comment.text || '',
     });
     if (error) console.error('Error reposting comment:', error);
-    else await refetchComments();
+    else {
+      // The Post carries the comment's content so it can render in the home feed
+      const { error: postError } = await supabase.from('Post').insert({
+        id: Crypto.randomUUID(),
+        user_id: comment.speaker_id,
+        text: comment.text,
+        file: comment.file,
+        repost_user_id: currentUser.id,
+        source_comment_id: comment.id,
+      });
+      if (postError) console.error('Error creating comment repost post:', postError);
+      await refetchComments();
+    }
   };
 
   const removeCommentRepost = async (comment: CommentItem) => {
@@ -588,7 +617,15 @@ export default function MainDebateScreen() {
       .eq('user_id', currentUser.id)
       .eq('comment_id', comment.id);
     if (error) console.error('Error removing repost:', error);
-    else await refetchComments();
+    else {
+      const { error: postError } = await supabase
+        .from('Post')
+        .delete()
+        .eq('source_comment_id', comment.id)
+        .eq('repost_user_id', currentUser.id);
+      if (postError) console.error('Error removing comment repost post:', postError);
+      await refetchComments();
+    }
   };
 
   const handleCommentDebatePress = () => {

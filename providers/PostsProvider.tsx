@@ -14,6 +14,7 @@ export type Post = {
   tag_name?: string | null;
   debate_side?: string | null;
   repost_user_id?: string | null;
+  source_comment_id?: string | null;
   isDebate?: boolean | null;
   user?: User;
   repost_user?: {

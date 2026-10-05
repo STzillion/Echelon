@@ -56,6 +56,10 @@ export default function HomeScreen() {
   const [debates, setDebates] = React.useState<any[]>([]);
   const [rootPosts, setRootPosts] = React.useState<Post[]>([]);
   const [repostRows, setRepostRows] = React.useState<any[]>([]);
+  const [commentContext, setCommentContext] = React.useState<{ comments: any[]; posts: Record<string, any> }>({
+    comments: [],
+    posts: {},
+  });
   const [feedCursor, setFeedCursor] = React.useState<string | null>(null);
   const [hasMoreFeed, setHasMoreFeed] = React.useState(true);
   const [isLoadingMore, setIsLoadingMore] = React.useState(false);
@@ -161,6 +165,130 @@ const RemoveRepost = async (orig: Post) => {
   }
 };
 
+  const loadCommentContext = async (roots: Post[]) => {
+    const sourceCommentIds = roots.map((post) => post.source_comment_id).filter(Boolean) as string[];
+    if (sourceCommentIds.length === 0) {
+      setCommentContext({ comments: [], posts: {} });
+      return;
+    }
+
+    const { data: sources, error: sourcesError } = await supabase
+      .from('Comment')
+      .select('id, post_id')
+      .in('id', sourceCommentIds);
+    if (sourcesError) {
+      console.error('Error loading reposted comments:', sourcesError);
+      return;
+    }
+
+    const threadPostIds = Array.from(new Set((sources ?? []).map((comment) => comment.post_id)));
+    if (threadPostIds.length === 0) return;
+
+    const [commentsResult, postsResult] = await Promise.all([
+      supabase
+        .from('Comment')
+        .select(
+          'id, post_id, speaker_id, text, file, created_at, parent_comment_id, reply_to_comment_id, speaker:User!speaker_id(id, username, avatar), likes:Like(user_id), reposts:Repost(user_id)'
+        )
+        .in('post_id', threadPostIds),
+      supabase.from('Post').select('id, text, user:User!user_id(id, username)').in('id', threadPostIds),
+    ]);
+    if (commentsResult.error || postsResult.error) {
+      console.error('Error loading comment thread context:', commentsResult.error || postsResult.error);
+      return;
+    }
+
+    setCommentContext({
+      comments: commentsResult.data ?? [],
+      posts: Object.fromEntries((postsResult.data ?? []).map((post: any) => [post.id, post])),
+    });
+  };
+
+  const toggleCommentLike = async (comment: any, liked: boolean) => {
+    if (!currentUser?.id) return;
+    Haptics.impactAsync(liked ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Medium);
+    const { error } = liked
+      ? await supabase.from('Like').delete().eq('user_id', currentUser.id).eq('comment_id', comment.id)
+      : await supabase.from('Like').insert({
+          user_id: currentUser.id,
+          comment_id: comment.id,
+          post_text: comment.text || '',
+        });
+    if (error) console.error('Error toggling comment like:', error);
+    await loadFeedData(true);
+  };
+
+  const toggleCommentRepost = async (comment: any, reposted: boolean) => {
+    if (!currentUser?.id) return;
+    if (reposted) {
+      const { error } = await supabase
+        .from('Repost')
+        .delete()
+        .eq('user_id', currentUser.id)
+        .eq('comment_id', comment.id);
+      if (error) {
+        console.error('Error removing comment repost:', error);
+        return;
+      }
+      const { error: postError } = await supabase
+        .from('Post')
+        .delete()
+        .eq('source_comment_id', comment.id)
+        .eq('repost_user_id', currentUser.id);
+      if (postError) console.error('Error removing comment repost post:', postError);
+    } else {
+      const { error } = await supabase.from('Repost').insert({
+        id: Crypto.randomUUID(),
+        user_id: currentUser.id,
+        comment_id: comment.id,
+        post_text: comment.text || '',
+      });
+      if (error) {
+        console.error('Error reposting comment:', error);
+        return;
+      }
+      const { error: postError } = await supabase.from('Post').insert({
+        id: Crypto.randomUUID(),
+        user_id: comment.speaker_id,
+        text: comment.text,
+        file: comment.file,
+        repost_user_id: currentUser.id,
+        source_comment_id: comment.id,
+      });
+      if (postError) console.error('Error creating comment repost post:', postError);
+    }
+    await loadFeedData(true);
+  };
+
+  // Walks reply targets up to the debate/post the comment was made on
+  const getCommentChain = (commentId: string) => {
+    const byId = new Map(commentContext.comments.map((comment) => [comment.id, comment]));
+    const source = byId.get(commentId);
+    if (!source) return [];
+
+    const chain: { label: string; excerpt?: string }[] = [];
+    const seen = new Set<string>([source.id]);
+    let targetId = source.reply_to_comment_id ?? source.parent_comment_id;
+    while (targetId && !seen.has(targetId)) {
+      const target = byId.get(targetId);
+      if (!target) break;
+      seen.add(target.id);
+      chain.push({
+        label: `@${target.speaker?.username ?? 'user'}'s comment`,
+        excerpt: target.text || (target.file?.endsWith('.mp4') ? 'Video' : target.file ? 'Photo' : undefined),
+      });
+      targetId = target.reply_to_comment_id ?? target.parent_comment_id;
+    }
+
+    const threadPost = commentContext.posts[source.post_id];
+    const isDebate = debates.some((debate) => debate.root_post_id === source.post_id);
+    chain.push({
+      label: `@${threadPost?.user?.username ?? 'user'}'s ${isDebate ? 'debate' : 'post'}`,
+      excerpt: threadPost?.text || undefined,
+    });
+    return chain;
+  };
+
   const loadFeedData = async (reset = false) => {
     if (isLoadingMore && !reset) return;
     setIsLoadingMore(true);
@@ -168,7 +296,7 @@ const RemoveRepost = async (orig: Post) => {
     const cursor = reset ? null : feedCursor;
     let rootQuery = supabase
       .from('Post')
-      .select('*, user:User!user_id(*), likes:Like(*), comments:Comment(id)')
+      .select('*, user:User!user_id(*), repost_user:User!repost_user_id(*), likes:Like(*), comments:Comment!Comment_post_id_fkey(id)')
       .is('parent_id', null)
       .order('created_at', { ascending: false })
       .range(0, 19);
@@ -190,6 +318,7 @@ const RemoveRepost = async (orig: Post) => {
           (post) => !rootPosts.some((existing) => existing.id === post.id)
         )];
     setRootPosts(nextRoots);
+    await loadCommentContext(nextRoots);
     setHasMoreFeed(fetchedRoots.length === 20);
     setFeedCursor(fetchedRoots[fetchedRoots.length - 1]?.created_at || feedCursor);
 
@@ -286,9 +415,11 @@ const RemoveRepost = async (orig: Post) => {
       })
       .filter(Boolean) as Post[];
 
-    return [...rootPosts, ...repostItems].sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
+    return [...rootPosts, ...repostItems]
+      .filter((post) => !(post.source_comment_id && post.repost_user_id === currentUser?.id))
+      .sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
   }, [rootPosts, repostRows, sortedPosts, currentUser?.id]);
 
 
@@ -383,6 +514,27 @@ const RemoveRepost = async (orig: Post) => {
           const isOwnPost = Boolean(currentUser?.id && (originalPost?.user_id === currentUser.id || post.user_id === currentUser.id));
           const canDebate = isSelectedAsDebate && !isOwnPost && !hasExistingDebate;
           const imageUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${displayPost.user?.id}/${displayPost.user?.avatar}`;
+          const isCommentRepost = Boolean(displayPost.source_comment_id);
+          const sourceComment = isCommentRepost
+            ? commentContext.comments.find((comment) => comment.id === displayPost.source_comment_id)
+            : undefined;
+          const commentLiked = Boolean(sourceComment?.likes?.some((like: { user_id: string }) => like.user_id === currentUser?.id));
+          const commentReposted = Boolean(sourceComment?.reposts?.some((repost: { user_id: string }) => repost.user_id === currentUser?.id));
+          const commentReplyCount = sourceComment
+            ? commentContext.comments.filter(
+                (comment) => (comment.reply_to_comment_id ?? comment.parent_comment_id) === sourceComment.id
+              ).length
+            : 0;
+          const likeActive = isCommentRepost ? commentLiked : isLiked;
+          const likeTotal = isCommentRepost ? (sourceComment?.likes?.length ?? 0) : (displayPost.likes?.length ?? 0);
+          const repostActive = isCommentRepost ? commentReposted : isReposted;
+          const repostTotal = isCommentRepost ? (sourceComment?.reposts?.length ?? 0) : repostCount;
+          const replyTotal = isCommentRepost ? commentReplyCount : (originalPost?.comments?.length ?? 0);
+          const commentSpeaker = sourceComment?.speaker ?? displayPost.user;
+          const commentAvatarUrl = commentSpeaker?.avatar
+            ? `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${commentSpeaker.id}/${commentSpeaker.avatar}`
+            : null;
+          const commentChain = displayPost.source_comment_id ? getCommentChain(displayPost.source_comment_id) : [];
           return (
           <React.Fragment key={post.id}>
             <View style={styles.postCard}>
@@ -428,8 +580,69 @@ const RemoveRepost = async (orig: Post) => {
                     </Text>
                 </View>
                 </Pressable>
+
+                {isCommentRepost ? (
+                  <View style={[styles.commentCard, Platform.OS === 'web' && styles.webCommentCard]}>
+                    <View style={styles.commentCardAuthor}>
+                      {commentAvatarUrl ? (
+                        <Image source={{ uri: commentAvatarUrl }} style={styles.commentCardAvatar} />
+                      ) : (
+                        <View style={[styles.commentCardAvatar, styles.commentCardGrayAvatar]}>
+                          <Text style={styles.commentCardGrayAvatarText}>
+                            {commentSpeaker?.username?.[0]?.toUpperCase() || '?'}
+                          </Text>
+                        </View>
+                      )}
+                      <Text style={[styles.username, { marginBottom: 0 }, Platform.OS === 'web' && styles.webArgumentUsername]}>
+                        {commentSpeaker?.username || 'Unknown'}
+                      </Text>
+                      <Text style={styles.commentCardTimestamp}>
+                        {timeAgo(sourceComment?.created_at || displayPost.created_at)}
+                      </Text>
+                    </View>
+
+                    {commentChain.length > 0 ? (
+                      <View style={styles.commentReplyContext}>
+                        {commentChain.map((entry, chainIndex) => (
+                          <View key={`${entry.label}-${chainIndex}`}>
+                            <Text style={styles.commentReplyAttribution}>
+                              {chainIndex === 0 ? 'Replying to ' : '↳ replying to '}
+                              {entry.label}
+                            </Text>
+                            {chainIndex === 0 && entry.excerpt ? (
+                              <Text
+                                style={[styles.commentReplyExcerpt, Platform.OS === 'web' && styles.webCommentReplyExcerpt]}
+                                numberOfLines={2}
+                              >
+                                {entry.excerpt}
+                              </Text>
+                            ) : null}
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+
+                    {renderPostText(sourceComment?.text ?? displayPost.text, true)}
+                    {(sourceComment?.file ?? displayPost.file) ? (
+                      (sourceComment?.file ?? displayPost.file).endsWith('.mp4') ? (
+                        <View style={styles.commentCardMedia}>
+                          <PostVideo
+                            uri={`${Image_Url}${displayPost.user_id}/${sourceComment?.file ?? displayPost.file}`}
+                            isVisible
+                          />
+                        </View>
+                      ) : (
+                        <Image
+                          source={{ uri: `${Image_Url}${displayPost.user_id}/${sourceComment?.file ?? displayPost.file}` }}
+                          style={styles.commentCardImage}
+                          resizeMode="contain"
+                        />
+                      )
+                    ) : null}
+                  </View>
+                ) : null}
                 
-               {(ifNotDebate) && (
+               {(ifNotDebate && !isCommentRepost) && (
                   <View>
                     {renderPostText(displayPost.text)}
                       {displayPost.file && displayPost.file.endsWith('.mp4') ? (
@@ -545,13 +758,17 @@ const RemoveRepost = async (orig: Post) => {
                   <View style={styles.likeGroup}>
                     <Pressable onPress={ () => 
                       {
+                        if (isCommentRepost && sourceComment) {
+                          toggleCommentLike(sourceComment, commentLiked);
+                          return;
+                        }
                         isLiked ? RemoveLike(originalPostId) : AddLike(originalPostId);
                       }} 
                       style={styles.actionIcon}>
-                      <Heart size={20}  color={isLiked ? 'red' : 'grey'} fill={isLiked ? 'red' : 'transparent'} />
+                      <Heart size={20}  color={likeActive ? 'red' : 'grey'} fill={likeActive ? 'red' : 'transparent'} />
                     </Pressable>
-                    {(displayPost.likes?.length ?? 0) > 0 && (
-                      <Text style={styles.likeCount}>{displayPost.likes!.length}</Text>
+                    {likeTotal > 0 && (
+                      <Text style={styles.likeCount}>{likeTotal}</Text>
                     )}
                   </View>
                   <View style={styles.commentGroup}>
@@ -566,28 +783,30 @@ const RemoveRepost = async (orig: Post) => {
                     >
                       <MessageCircle size={20} color="#b0b0b0" />
                     </Pressable>
-                    {(originalPost?.comments?.length ?? 0) > 0 && (
-                      <Text style={styles.commentCount}>{originalPost!.comments!.length}</Text>
+                    {replyTotal > 0 && (
+                      <Text style={styles.commentCount}>{replyTotal}</Text>
                     )}
                   </View>
 
                
                   <View style={styles.repostGroup}>
                   <Pressable
-                    onPress={() =>
-                      
-                      isReposted ? RemoveRepost(post) : addRepost(post)
-                      //
-                    }
+                    onPress={() => {
+                      if (isCommentRepost && sourceComment) {
+                        toggleCommentRepost(sourceComment, commentReposted);
+                        return;
+                      }
+                      isReposted ? RemoveRepost(post) : addRepost(post);
+                    }}
                     style={styles.actionIcon}
                   >
                     <Repeat
                       size={20}
-                      color={isReposted ? 'cyan' : '#b0b0b0'}
+                      color={repostActive ? 'cyan' : '#b0b0b0'}
                     />
                   </Pressable>
-                  {repostCount > 0 && (
-                    <Text style={styles.repostCount}>{repostCount}</Text>
+                  {repostTotal > 0 && (
+                    <Text style={styles.repostCount}>{repostTotal}</Text>
                   )}
                 </View>
                  
@@ -875,6 +1094,80 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 5,
     marginLeft: 4,
+  },
+  commentCard: {
+    backgroundColor: '#181818',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    padding: 9,
+    marginTop: 4,
+  },
+  webCommentCard: {
+    padding: 6,
+    borderRadius: 8,
+  },
+  commentCardAuthor: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 3,
+  },
+  commentCardAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  commentCardGrayAvatar: {
+    backgroundColor: '#444',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  commentCardGrayAvatarText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  commentCardTimestamp: {
+    color: '#888888',
+    fontSize: 11,
+  },
+  commentReplyAttribution: {
+    color: '#22d3ee',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  commentReplyContext: {
+    borderLeftWidth: 2,
+    borderLeftColor: 'rgba(34, 211, 238, 0.6)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    paddingLeft: 8,
+    paddingVertical: 5,
+    paddingRight: 6,
+    marginBottom: 7,
+  },
+  commentReplyExcerpt: {
+    color: '#9ca3af',
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  webCommentReplyExcerpt: {
+    fontSize: 12.5,
+    lineHeight: 1.35,
+  },
+  commentCardMedia: {
+    width: '100%',
+    height: 80,
+    borderRadius: 10,
+    overflow: 'hidden',
+    marginBottom: 4,
+  },
+  commentCardImage: {
+    width: '100%',
+    height: 80,
+    borderRadius: 10,
+    marginBottom: 4,
   },
   repostInfo: {
     color: '#aaa',
