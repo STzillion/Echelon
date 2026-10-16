@@ -74,7 +74,7 @@ export default ({ user }: { user?: User }) => {
       let cancelled = false;
       supabase
         .from('Repost')
-        .select('*, post:Post!post_id(*, user:User!user_id(*), likes:Like(*))')
+        .select('*, post:Post!post_id(*, user:User!user_id(*), likes:Like(*), reposts:Repost(user_id,post_id), comments:Comment!Comment_post_id_fkey(id))')
         .eq('user_id', user.id)
         .not('post_id', 'is', null)
         .order('created_at', { ascending: false })
@@ -400,9 +400,17 @@ export default ({ user }: { user?: User }) => {
         ) : (
           <View style={styles.profileFeed}>
             {displayedPosts.map((post, index) => {
-              const isLiked = post.likes?.some((like) => like.user_id === authUser?.id);
-              const repostCount = (posts ?? []).filter((item) => item.parent_id === post.id).length;
               const originalPostId = post.parent_id || post.id;
+              const originalPost = (posts ?? []).find((item) => item.id === originalPostId) ?? post;
+              const isLiked = originalPost.likes?.some((like) => like.user_id === authUser?.id);
+              const repostUserIds = new Set([
+                ...(originalPost.reposts ?? []).map((repost) => repost.user_id),
+                ...(posts ?? [])
+                  .filter((item) => item.parent_id === originalPostId && item.repost_user_id)
+                  .map((item) => item.repost_user_id as string),
+              ]);
+              const repostCount = repostUserIds.size;
+              const commentCount = originalPost.comments?.length ?? 0;
               const postDebates = userDebates
                 .filter((debate) => debate.root_post_id === originalPostId)
                 .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -415,7 +423,6 @@ export default ({ user }: { user?: User }) => {
               ) || (authUser?.id === user?.id && userReposts.some(
                 (item) => item.post_id === (post.parent_id || post.id) && item.user_id === authUser.id
               ));
-              const originalPost = post.parent_id ? posts?.find((p) => p.id === post.parent_id) : post;
               const isOwnPost = Boolean(authUser?.id && (originalPost?.user_id === authUser.id || post.user_id === authUser.id));
               const canDebate = isSelectedAsDebate && !isOwnPost && !hasDebate;
               const postTime = originalPost?.created_at || post.created_at;
@@ -570,7 +577,7 @@ export default ({ user }: { user?: User }) => {
                       {/* ACTIONS ROW */}
                       <View style={[styles.actionsRow, Platform.OS === 'web' && styles.webActionsRow]}>
                         <View style={styles.likeGroup}>
-                          <Pressable onPress={() => toggleLike(post)} style={styles.actionIcon}>
+                          <Pressable onPress={() => toggleLike(originalPost)} style={styles.actionIcon}>
                             <Heart size={20} color={isLiked ? 'red' : 'grey'} fill={isLiked ? 'red' : 'transparent'} />
                           </Pressable>
                           {(post.likes?.length ?? 0) > 0 && (
@@ -578,12 +585,25 @@ export default ({ user }: { user?: User }) => {
                           )}
                         </View>
 
-                        <Pressable style={styles.actionIcon}>
-                          <MessageCircle size={20} color="#b0b0b0" />
-                        </Pressable>
+                        <View style={styles.commentGroup}>
+                          <Pressable
+                            style={styles.actionIcon}
+                            onPress={() =>
+                              router.push({
+                                pathname: '/mainDebate',
+                                params: { postId: originalPostId },
+                              })
+                            }
+                          >
+                            <MessageCircle size={20} color="#b0b0b0" />
+                          </Pressable>
+                          {commentCount > 0 && (
+                            <Text style={styles.commentCount}>{commentCount}</Text>
+                          )}
+                        </View>
 
                         <View style={styles.repostGroup}>
-                          <Pressable onPress={() => toggleRepost(post)} style={styles.actionIcon}>
+                          <Pressable onPress={() => toggleRepost(originalPost)} style={styles.actionIcon}>
                             <Repeat size={20} color={isReposted ? 'cyan' : '#b0b0b0'} />
                           </Pressable>
                           {repostCount > 0 && (
@@ -873,11 +893,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  commentGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   repostGroup: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   likeCount: {
+    color: '#b0b0b0',
+    fontSize: 13,
+    fontWeight: '600',
+    marginLeft: 1,
+  },
+  commentCount: {
     color: '#b0b0b0',
     fontSize: 13,
     fontWeight: '600',

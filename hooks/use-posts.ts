@@ -8,7 +8,7 @@ export const getPosts = async (): Promise<Post[]> => {
     //
     .select(
       '*, user:User!user_id(*),' + 'repost_user:User!repost_user_id(*),  likes:Like(*)'
-      + ', reposts:Repost(*)'
+      + ', reposts:Repost(user_id,post_id), comments:Comment!Comment_post_id_fkey(id)'
     )
     // .is('parent_id', null)
     .order('created_at', { ascending: false });

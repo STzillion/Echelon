@@ -24,11 +24,12 @@ import {
   Video as VideoIcon,
   X
 } from 'lucide-react-native';
-import { Fragment, ReactNode, useEffect, useRef, useState } from 'react';
+import { Fragment, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Animated,
+  FlatList,
   Image,
   Keyboard,
   KeyboardAvoidingView,
@@ -42,6 +43,7 @@ import {
   StyleSheet,
   TextInput,
   useWindowDimensions,
+  ViewToken,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -73,6 +75,30 @@ function formatExchangeDate(dateString?: string) {
   return `${month} ${day}, ${hours}:${minutes} ${ampm}`;
 }
 
+function toExchangeItem(segment: any, debate: any, post: any): ExchangeItem {
+  const speaker =
+    segment.speaker_id === debate?.challenger_id
+      ? debate.challenger
+      : segment.speaker_id === debate?.opponent_id
+        ? debate.opponent
+        : segment.speaker_id === post?.user_id
+          ? post.user
+          : null;
+
+  return {
+    id: segment.id,
+    speakerId: segment.speaker_id,
+    speakerName: speaker?.username || 'Debater',
+    speakerHandle: speaker?.username?.toLowerCase() || 'debater',
+    avatar: speaker?.avatar,
+    text: segment.text || '',
+    file: segment.file,
+    createdAt: segment.created_at,
+    side: segment.side === 'root' ? 'root' : 'challenger',
+    roundNumber: segment.round_number,
+  };
+}
+
 function timeAgo(dateString: string) {
   const now = new Date();
   const date = new Date(dateString);
@@ -92,10 +118,13 @@ type ThreadScrollRequest = {
   offset?: number;
 };
 
+const COMMENT_VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 10 };
+
 function CommentThreadScroller({
   width,
   slideCount,
   request,
+  initialOffset,
   onLayout,
   onScroll,
   children,
@@ -103,15 +132,23 @@ function CommentThreadScroller({
   width: number;
   slideCount: number;
   request?: ThreadScrollRequest;
+  initialOffset: number;
   onLayout: (event: LayoutChangeEvent) => void;
   onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   children: ReactNode;
 }) {
-  const translateX = useRef(new Animated.Value(0)).current;
+  const [translateX] = useState(() => new Animated.Value(0));
+  const nativeScrollRef = useRef<ScrollView>(null);
+  const activeIndexRef = useRef(width > 0 ? Math.round(initialOffset / width) : 0);
 
   useEffect(() => {
-    if (Platform.OS !== 'web' || request?.offset === undefined || !width) return;
+    if (request?.offset === undefined || !width) return;
     const nextIndex = Math.max(0, Math.min(Math.round(request.offset / width), slideCount - 1));
+    activeIndexRef.current = nextIndex;
+    if (Platform.OS !== 'web') {
+      nativeScrollRef.current?.scrollTo({ x: nextIndex * width, animated: true });
+      return;
+    }
     Animated.timing(translateX, {
       toValue: -nextIndex * width,
       duration: 280,
@@ -119,32 +156,66 @@ function CommentThreadScroller({
     }).start();
   }, [request?.token, request?.offset, slideCount, translateX, width]);
 
+  useEffect(() => {
+    if (Platform.OS === 'web' || !width) return;
+    nativeScrollRef.current?.scrollTo({
+      x: activeIndexRef.current * width,
+      animated: false,
+    });
+  }, [width]);
+
+  const handleNativeScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    activeIndexRef.current = width > 0
+      ? Math.round(event.nativeEvent.contentOffset.x / width)
+      : 0;
+    onScroll(event);
+  };
+
+  const handleNativeMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (!width) return;
+
+    const offsetX = event.nativeEvent.contentOffset.x;
+    const nearestIndex = Math.max(0, Math.min(Math.round(offsetX / width), slideCount - 1));
+    const targetOffset = nearestIndex * width;
+    if (Math.abs(offsetX - targetOffset) > 1) {
+      nativeScrollRef.current?.scrollTo({ x: targetOffset, animated: true });
+    }
+  };
+
   if (Platform.OS === 'web') {
     return (
-      <View style={{ width, overflow: 'hidden' }} onLayout={onLayout}>
-        <Animated.View style={{ flexDirection: 'row', transform: [{ translateX }] }}>
-          {children}
-        </Animated.View>
+      <View style={styles.threadCarouselViewport} onLayout={onLayout}>
+        <View style={{ width, overflow: 'hidden' }}>
+          <Animated.View style={{ flexDirection: 'row', flexGrow: 0, flexShrink: 0, transform: [{ translateX }] }}>
+            {children}
+          </Animated.View>
+        </View>
       </View>
     );
   }
 
   return (
-    <ScrollView
-      key={request?.token ?? 0}
-      horizontal
-      pagingEnabled
-      contentOffset={{ x: request?.offset ?? 0, y: 0 }}
-      showsHorizontalScrollIndicator={false}
-      decelerationRate="fast"
-      snapToInterval={width}
-      snapToAlignment="start"
-      scrollEventThrottle={16}
-      onLayout={onLayout}
-      onScroll={onScroll}
-    >
-      {children}
-    </ScrollView>
+    <View style={styles.threadCarouselViewport}>
+      <ScrollView
+        ref={nativeScrollRef}
+        horizontal
+        style={{ width: '100%', flexGrow: 0, flexShrink: 0 }}
+        contentContainerStyle={{ alignItems: 'flex-start' }}
+        contentInsetAdjustmentBehavior="never"
+        contentInset={{ left: 0, right: 0 }}
+        showsHorizontalScrollIndicator={false}
+        decelerationRate="fast"
+        snapToInterval={width}
+        snapToAlignment="center"
+        disableIntervalMomentum
+        scrollEventThrottle={16}
+        onLayout={onLayout}
+        onScroll={handleNativeScroll}
+        onMomentumScrollEnd={handleNativeMomentumScrollEnd}
+      >
+        {children}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -153,6 +224,7 @@ export default function MainDebateScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const currentUser = user as any;
+  const currentUserId = currentUser?.id;
   const { uploadFile } = useUploadFile();
   const { width: windowWidth } = useWindowDimensions();
   const screenWidth = Platform.OS === 'web' ? Math.min(windowWidth, 500) : windowWidth;
@@ -162,12 +234,36 @@ export default function MainDebateScreen() {
   const [rootPost, setRootPost] = useState<Post | null>(null);
   const [debate, setDebate] = useState<any | null>(null);
   const [exchanges, setExchanges] = useState<ExchangeItem[]>([]);
+  const [latestExchange, setLatestExchange] = useState<ExchangeItem | null>(null);
+  const [hasMoreSegments, setHasMoreSegments] = useState(false);
+  const [isLoadingMoreSegments, setIsLoadingMoreSegments] = useState(false);
+  const [segmentLoadError, setSegmentLoadError] = useState<string | null>(null);
+  const [latestSegmentLoadError, setLatestSegmentLoadError] = useState(false);
+  const segmentCursor = useRef<{ round_number: number; id: string } | null>(null);
+  const segmentLoading = useRef(false);
+  const segmentTotalCount = useRef(0);
+  const loadedSegmentIds = useRef<Set<string>>(new Set());
   const [activeIndex, setActiveIndex] = useState(0);
   const [hideExchangesBanner, setHideExchangesBanner] = useState(false);
   const [repostCount, setRepostCount] = useState(0);
   const [isReposted, setIsReposted] = useState(false);
-  const [commentCount, setCommentCount] = useState(0);
-  const { data: comments, refetch: refetchComments } = useComments(rootPost?.id);
+  const {
+    data: comments,
+    topLevelComments,
+    threadErrors,
+    commentCount: loadedCommentCount,
+    isLoading: isLoadingComments,
+    isLoadingMoreTopLevel,
+    hasMoreTopLevel,
+    isThreadLoading,
+    threadHasMore,
+    loadMoreTopLevel,
+    loadMoreThreadReplies,
+    addComment,
+    updateComment,
+    error: commentsError,
+    refetch: refetchComments,
+  } = useComments(rootPost?.id);
 
   // Votes state
   const [opVotes, setOpVotes] = useState(31);
@@ -182,9 +278,9 @@ export default function MainDebateScreen() {
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
 
   const scrollRef = useRef<ScrollView>(null);
-  const mainScrollRef = useRef<ScrollView>(null);
+  const mainScrollRef = useRef<FlatList<CommentItem>>(null);
 
-  const loadDebateData = async (showLoader = true) => {
+  const loadDebateData = useCallback(async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true);
       const targetPostId = postId;
@@ -247,17 +343,53 @@ export default function MainDebateScreen() {
       setDebate(debateData);
 
       let debateSegments: any[] = [];
+      let latestSegment: any = null;
+      segmentCursor.current = null;
+      segmentTotalCount.current = 0;
+      loadedSegmentIds.current = new Set();
+      setHasMoreSegments(false);
+      setSegmentLoadError(null);
+      setLatestSegmentLoadError(false);
       if (debateData?.id) {
-        const { data: segmentData, error: segmentError } = await supabase
-          .from('DebateSegment')
-          .select('*')
-          .eq('debate_id', debateData.id)
-          .order('round_number', { ascending: true });
+        const [{ data: segmentData, error: segmentError, count }, { data: latestData, error: latestError }] = await Promise.all([
+          supabase
+            .from('DebateSegment')
+            .select('*', { count: 'exact' })
+            .eq('debate_id', debateData.id)
+            .order('round_number', { ascending: true })
+            .order('id', { ascending: true })
+            .limit(8),
+          supabase
+            .from('DebateSegment')
+            .select('*')
+            .eq('debate_id', debateData.id)
+            .order('round_number', { ascending: false })
+            .order('id', { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        ]);
 
         if (segmentError) {
           console.warn('Error loading debate segments:', segmentError.message);
+          setSegmentLoadError(segmentError.message);
         } else {
           debateSegments = segmentData || [];
+          segmentTotalCount.current = count ?? 0;
+          loadedSegmentIds.current = new Set(debateSegments.map((segment) => segment.id));
+          const lastLoaded = debateSegments[debateSegments.length - 1];
+          segmentCursor.current = lastLoaded
+            ? { round_number: lastLoaded.round_number, id: lastLoaded.id }
+            : null;
+          setHasMoreSegments(loadedSegmentIds.current.size < segmentTotalCount.current);
+        }
+
+        if (latestError) {
+          console.warn('Error loading latest debate segment:', latestError.message);
+          setSegmentLoadError(latestError.message);
+          setLatestSegmentLoadError(true);
+        } else {
+          latestSegment = latestData;
+          setLatestSegmentLoadError(false);
         }
       }
 
@@ -265,15 +397,17 @@ export default function MainDebateScreen() {
       const currentRootId = postData?.id || debateData?.root_post_id;
       let threadPosts: any[] = [];
       if (currentRootId) {
-        const { data: repliesData } = await supabase
-          .from('Post')
-          .select('*, user:User!user_id(*)')
-          .eq('parent_id', currentRootId)
-          .is('repost_user_id', null)
-          .order('created_at', { ascending: true });
+        if (segmentTotalCount.current === 0) {
+          const { data: repliesData, error: repliesError } = await supabase
+            .from('Post')
+            .select('*, user:User!user_id(*)')
+            .eq('parent_id', currentRootId)
+            .is('repost_user_id', null)
+            .order('created_at', { ascending: true });
 
-        threadPosts = (repliesData || []).filter((p) => !p.repost_user_id);
-        setCommentCount(threadPosts.filter((p) => !p.debate_side).length);
+          if (repliesError) console.warn('Error loading legacy debate replies:', repliesError.message);
+          threadPosts = (repliesData || []).filter((p) => !p.repost_user_id);
+        }
 
         const [{ data: postReposts }, { data: legacyReposts }] = await Promise.all([
           supabase
@@ -292,8 +426,8 @@ export default function MainDebateScreen() {
         ]);
         setRepostCount(repostUserIds.size);
 
-        if (currentUser?.id) {
-          setIsReposted(repostUserIds.has(currentUser.id));
+        if (currentUserId) {
+          setIsReposted(repostUserIds.has(currentUserId));
         }
       }
 
@@ -316,29 +450,8 @@ export default function MainDebateScreen() {
         });
       }
 
-      if (debateSegments.length > 0) {
-        debateSegments.forEach((segment) => {
-          const speaker =
-            segment.speaker_id === debateData?.challenger_id
-              ? debateData.challenger
-              : segment.speaker_id === debateData?.opponent_id
-                ? debateData.opponent
-                : segment.speaker_id === postData?.user_id
-                  ? postData.user
-                  : null;
-          items.push({
-            id: segment.id,
-            speakerId: segment.speaker_id,
-            speakerName: speaker?.username || 'Debater',
-            speakerHandle: speaker?.username?.toLowerCase() || 'debater',
-            avatar: speaker?.avatar,
-            text: segment.text || '',
-            file: segment.file,
-            createdAt: segment.created_at,
-            side: segment.side === 'root' ? 'root' : 'challenger',
-            roundNumber: segment.round_number,
-          });
-        });
+      if (segmentTotalCount.current > 0) {
+        debateSegments.forEach((segment) => items.push(toExchangeItem(segment, debateData, postData)));
       } else {
         // Legacy debates created before DebateSegment existed.
         if (debateData && debateData.challenger_text) {
@@ -374,6 +487,7 @@ export default function MainDebateScreen() {
       }
 
       setExchanges(items);
+      setLatestExchange(latestSegment ? toExchangeItem(latestSegment, debateData, postData) : items[items.length - 1] ?? null);
 
       // Initial vote counts based on debate or defaults
       const baseOp = 31 + (postData?.likes?.length || 0);
@@ -385,11 +499,13 @@ export default function MainDebateScreen() {
     } finally {
       if (showLoader) setLoading(false);
     }
-  };
+  }, [postId, debateId, currentUserId]);
 
   const handleRefresh = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setRefreshing(true);
+    setActiveIndex(0);
+    scrollRef.current?.scrollTo({ x: 0, animated: false });
     try {
       await loadDebateData(false);
       await refetchComments();
@@ -399,8 +515,8 @@ export default function MainDebateScreen() {
   };
 
   useEffect(() => {
-    loadDebateData();
-  }, [postId, debateId]);
+    void Promise.resolve().then(() => loadDebateData());
+  }, [loadDebateData]);
 
   const opUser: User = rootPost?.user || {
     id: rootPost?.user_id || '',
@@ -412,12 +528,11 @@ export default function MainDebateScreen() {
     username: 'Challenger',
   };
 
-  const lastExchange = exchanges.length > 0 ? exchanges[exchanges.length - 1] : null;
+  const lastExchange = latestExchange ?? (exchanges.length > 0 ? exchanges[exchanges.length - 1] : null);
   const isLastSpeakerChallenger = lastExchange ? lastExchange.side === 'challenger' : true;
 
   // Next speaker is OP if last was challenger; otherwise next is Challenger
   const nextSpeakerId = isLastSpeakerChallenger ? opUser.id : challengerUser.id;
-  const nextSpeakerName = isLastSpeakerChallenger ? opUser.username : challengerUser.username;
   const isCurrentUserDebater = Boolean(
     currentUser?.id && (currentUser.id === opUser.id || currentUser.id === challengerUser.id)
   );
@@ -426,7 +541,8 @@ export default function MainDebateScreen() {
   );
 
   // Total slides = all exchanges + (1 final slide if it is currently the logged-in user's turn)
-  const totalSlides = exchanges.length + (isCurrentUserTurn ? 1 : 0);
+  const canComposeCounter = isCurrentUserTurn && !hasMoreSegments && !segmentLoadError && !latestSegmentLoadError && !refreshing;
+  const totalSlides = exchanges.length + (canComposeCounter ? 1 : 0);
 
   const scrollToSlide = (index: number) => {
     if (index < 0 || index >= totalSlides) return;
@@ -438,11 +554,77 @@ export default function MainDebateScreen() {
     Haptics.selectionAsync();
   };
 
+  const loadMoreSegments = async () => {
+    if (!debate?.id || segmentLoading.current || loadedSegmentIds.current.size >= segmentTotalCount.current) return;
+
+    segmentLoading.current = true;
+    setIsLoadingMoreSegments(true);
+    setSegmentLoadError(null);
+    try {
+      let query = supabase
+        .from('DebateSegment')
+        .select('*')
+        .eq('debate_id', debate.id)
+        .order('round_number', { ascending: true })
+        .order('id', { ascending: true })
+        .limit(8);
+
+      if (segmentCursor.current) {
+        query = query.or(
+          `round_number.gt.${segmentCursor.current.round_number},and(round_number.eq.${segmentCursor.current.round_number},id.gt.${segmentCursor.current.id})`
+        );
+      }
+
+      const { data, error: segmentError } = await query;
+      if (segmentError) throw segmentError;
+
+      const page = data ?? [];
+      if (!page.length) {
+        segmentTotalCount.current = loadedSegmentIds.current.size;
+        setHasMoreSegments(false);
+        return;
+      }
+
+      const lastSegment = page[page.length - 1];
+      segmentCursor.current = { round_number: lastSegment.round_number, id: lastSegment.id };
+      const newSegments = page.filter((segment) => !loadedSegmentIds.current.has(segment.id));
+      newSegments.forEach((segment) => loadedSegmentIds.current.add(segment.id));
+      setExchanges((current) => {
+        const merged = [...current, ...newSegments.map((segment) => toExchangeItem(segment, debate, rootPost))];
+        const root = merged.find((item) => item.id === rootPost?.id);
+        const segments = merged.filter((item) => item.id !== rootPost?.id);
+        segments.sort((a, b) => a.roundNumber - b.roundNumber || a.id.localeCompare(b.id));
+        return root ? [root, ...segments] : segments;
+      });
+      setHasMoreSegments(loadedSegmentIds.current.size < segmentTotalCount.current);
+    } catch (cause) {
+      console.error('Error loading more debate segments:', cause);
+      setSegmentLoadError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      segmentLoading.current = false;
+      setIsLoadingMoreSegments(false);
+    }
+  };
+
   const stepThreadSlide = (threadRootId: string, direction: -1 | 1, slideCount: number) => {
     const currentIndex = activeThreadSlides[threadRootId] ?? 0;
     const nextIndex = Math.max(0, Math.min(currentIndex + direction, slideCount - 1));
     if (nextIndex === currentIndex) return;
     requestThreadScroll(threadRootId, nextIndex * threadSlideWidth);
+    const threadComments = getThreadComments(threadRootId);
+    if (nextIndex >= Math.max(1, threadComments.length - 2) && threadHasMore(threadRootId)) {
+      void loadMoreThreadReplies(threadRootId);
+    }
+    const activeComment = threadComments[nextIndex];
+    if (activeComment && activeComment.id !== threadRootId) {
+      void loadMoreThreadReplies(activeComment.id, true);
+    }
+    if (nextIndex >= Math.max(1, threadComments.length - 2)) {
+      const lastComment = threadComments[threadComments.length - 1];
+      if (lastComment?.parent_comment_id && lastComment.parent_comment_id !== threadRootId) {
+        void loadMoreThreadReplies(lastComment.parent_comment_id);
+      }
+    }
     Haptics.selectionAsync();
   };
 
@@ -451,6 +633,9 @@ export default function MainDebateScreen() {
     const index = Math.round(offsetX / screenWidth);
     if (index !== activeIndex && index >= 0 && index < totalSlides) {
       setActiveIndex(index);
+    }
+    if (hasMoreSegments && index >= exchanges.length - 3) {
+      void loadMoreSegments();
     }
   };
 
@@ -525,7 +710,7 @@ export default function MainDebateScreen() {
       const debateDbId = debate?.id;
       const currentSide = currentUser.id === opUser.id ? 'root' : 'challenger';
 
-      const { error: segmentError } = await supabase.from('DebateSegment').insert({
+      const { data: insertedSegment, error: segmentError } = await supabase.from('DebateSegment').insert({
         id: Crypto.randomUUID(),
         debate_id: debateDbId,
         post_id: rootId,
@@ -533,8 +718,8 @@ export default function MainDebateScreen() {
         text: replyText.trim(),
         file: mediaFilename,
         side: currentSide,
-        round_number: exchanges.length + 1,
-      });
+        round_number: (latestExchange?.roundNumber ?? 1) + 1,
+      }).select('*').single();
 
       if (segmentError) {
         console.error('Error creating debate segment:', segmentError);
@@ -547,8 +732,20 @@ export default function MainDebateScreen() {
       setReplyPhoto('');
       setReplyVideo('');
 
-      // Reload exchanges
-      await loadDebateData();
+      if (insertedSegment) {
+        const newExchange = toExchangeItem(insertedSegment, debate, rootPost);
+        loadedSegmentIds.current.add(insertedSegment.id);
+        segmentTotalCount.current += 1;
+        setLatestExchange(newExchange);
+        setExchanges((current) => {
+          const merged = [...current.filter((item) => item.id !== newExchange.id), newExchange];
+          const root = merged.find((item) => item.id === rootPost?.id);
+          const segments = merged.filter((item) => item.id !== rootPost?.id);
+          segments.sort((a, b) => a.roundNumber - b.roundNumber || a.id.localeCompare(b.id));
+          return root ? [root, ...segments] : segments;
+        });
+        setHasMoreSegments(loadedSegmentIds.current.size < segmentTotalCount.current);
+      }
       scrollToSlide(exchanges.length);
     } catch (e: any) {
       console.error('Submit rebuttal exception:', e);
@@ -570,7 +767,12 @@ export default function MainDebateScreen() {
       post_text: comment.text || '',
     });
     if (error) console.error('Error liking comment:', error);
-    else await refetchComments();
+    else {
+      updateComment(comment.id, (current) => ({
+        ...current,
+        likes: [...(current.likes ?? []), { user_id: currentUser.id }],
+      }));
+    }
   };
 
   const removeCommentLike = async (comment: CommentItem) => {
@@ -582,7 +784,12 @@ export default function MainDebateScreen() {
       .eq('user_id', currentUser.id)
       .eq('comment_id', comment.id);
     if (error) console.error('Error unliking comment:', error);
-    else await refetchComments();
+    else {
+      updateComment(comment.id, (current) => ({
+        ...current,
+        likes: (current.likes ?? []).filter((like) => like.user_id !== currentUser.id),
+      }));
+    }
   };
 
   const addCommentRepost = async (comment: CommentItem) => {
@@ -605,7 +812,10 @@ export default function MainDebateScreen() {
         source_comment_id: comment.id,
       });
       if (postError) console.error('Error creating comment repost post:', postError);
-      await refetchComments();
+      updateComment(comment.id, (current) => ({
+        ...current,
+        reposts: [...(current.reposts ?? []), { user_id: currentUser.id }],
+      }));
     }
   };
 
@@ -624,7 +834,10 @@ export default function MainDebateScreen() {
         .eq('source_comment_id', comment.id)
         .eq('repost_user_id', currentUser.id);
       if (postError) console.error('Error removing comment repost post:', postError);
-      await refetchComments();
+      updateComment(comment.id, (current) => ({
+        ...current,
+        reposts: (current.reposts ?? []).filter((repost) => repost.user_id !== currentUser.id),
+      }));
     }
   };
 
@@ -641,9 +854,27 @@ export default function MainDebateScreen() {
   const [submittingThreadId, setSubmittingThreadId] = useState<string | null>(null);
   const [activeThreadSlides, setActiveThreadSlides] = useState<Record<string, number>>({});
   const [threadScrollRequests, setThreadScrollRequests] = useState<Record<string, ThreadScrollRequest>>({});
+  const [threadMaxCardHeights, setThreadMaxCardHeights] = useState<Record<string, number>>({});
   const [threadCarouselWidth, setThreadCarouselWidth] = useState(screenWidth);
-  const threadSlideOffsets = useRef<Record<string, number>>({});
   const threadSlideWidth = threadCarouselWidth;
+  const commentById = useMemo(() => new Map(comments.map((comment) => [comment.id, comment])), [comments]);
+  const commentsByParent = useMemo(() => {
+    const children = new Map<string, CommentItem[]>();
+    comments.forEach((comment) => {
+      if (!comment.parent_comment_id) return;
+      const siblings = children.get(comment.parent_comment_id) ?? [];
+      siblings.push(comment);
+      children.set(comment.parent_comment_id, siblings);
+    });
+    return children;
+  }, [comments]);
+  const commentViewabilityCallback = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    viewableItems.forEach(({ item }) => {
+      if (item && typeof item === 'object' && 'id' in item && typeof item.id === 'string') {
+        void loadMoreThreadReplies(item.id);
+      }
+    });
+  }, [loadMoreThreadReplies]);
 
   const requestThreadScroll = (threadRootId: string, offset: number) => {
     setThreadScrollRequests((requests) => ({
@@ -668,20 +899,20 @@ export default function MainDebateScreen() {
   };
 
   const getThreadComments = (threadRootId: string) => {
-    const threadIds = new Set([threadRootId]);
-    let foundDescendant = true;
+    const root = commentById.get(threadRootId);
+    if (!root) return [];
 
-    while (foundDescendant) {
-      foundDescendant = false;
-      (comments ?? []).forEach((comment) => {
-        if (comment.parent_comment_id && threadIds.has(comment.parent_comment_id) && !threadIds.has(comment.id)) {
-          threadIds.add(comment.id);
-          foundDescendant = true;
-        }
-      });
+    const descendants: CommentItem[] = [];
+    const parents = [threadRootId];
+    for (let index = 0; index < parents.length; index += 1) {
+      for (const child of commentsByParent.get(parents[index]) ?? []) {
+        descendants.push(child);
+        parents.push(child.id);
+      }
     }
 
-    return (comments ?? []).filter((comment) => threadIds.has(comment.id));
+    descendants.sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+    return [root, ...descendants];
   };
 
   const pickThreadReplyMedia = async (commentId: string, mediaType: 'image' | 'video') => {
@@ -713,7 +944,7 @@ export default function MainDebateScreen() {
         mediaFilename = await uploadFile(currentUser.id, draft.video, 'video/mp4', `${Date.now()}-comment-reply.mp4`);
       }
 
-      const { error } = await supabase.from('Comment').insert({
+      const { data, error } = await supabase.from('Comment').insert({
         id: Crypto.randomUUID(),
         post_id: rootPost.id,
         parent_comment_id: parentComment.id,
@@ -722,7 +953,7 @@ export default function MainDebateScreen() {
         text: draft.text.trim(),
         file: mediaFilename,
         is_debatable: isDebatable,
-      });
+      }).select('*, speaker:User!speaker_id(id,username,avatar), likes:Like(user_id), reposts:Repost(user_id)').single();
       if (error) {
         console.error('Error posting comment reply:', error);
         Alert.alert('Error', 'Could not post your reply.');
@@ -730,7 +961,7 @@ export default function MainDebateScreen() {
       }
       updateThreadReply(parentComment.id, { text: '', photo: '', video: '' });
       setThreadReplyTargets((targets) => ({ ...targets, [parentComment.id]: parentComment.id }));
-      await refetchComments();
+      addComment(data as unknown as CommentItem);
     } finally {
       setSubmittingThreadId(null);
     }
@@ -746,26 +977,38 @@ export default function MainDebateScreen() {
     ]);
   };
 
-  const renderThreadCommentCard = (comment: CommentItem, threadRootId: string) => {
+  const recordThreadCardHeight = (threadRootId: string, height: number) => {
+    setThreadMaxCardHeights((heights) => {
+      if (height <= (heights[threadRootId] ?? 0) + 1) return heights;
+      return { ...heights, [threadRootId]: height };
+    });
+  };
+
+  const renderThreadCommentCard = (
+    comment: CommentItem,
+    threadRootId: string,
+    isVisible: boolean,
+    maxCardHeight: number
+  ) => {
     const isCommentLiked = comment.likes?.some((like) => like.user_id === currentUser?.id);
     const isCommentReposted = comment.reposts?.some((repost: any) => repost.user_id === currentUser?.id);
     const replyTargetId = comment.reply_to_comment_id ?? comment.parent_comment_id;
-    const replyTarget = replyTargetId
-      ? comments?.find((item) => item.id === replyTargetId)
-      : null;
+    const replyTarget = replyTargetId ? commentById.get(replyTargetId) : null;
     const avatarUrl = comment.speaker?.avatar
       ? `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${comment.speaker.id}/${comment.speaker.avatar}`
       : null;
 
     return (
       <View
-        style={[styles.commentSlideWrapper, { width: threadSlideWidth }]}
-        onLayout={(event) => {
-          const { x, width } = event.nativeEvent.layout;
-          threadSlideOffsets.current[comment.id] = x;
-        }}
+        style={[
+          styles.commentSlideWrapper,
+          { width: threadSlideWidth, minHeight: maxCardHeight, flexGrow: 0, flexShrink: 0 },
+        ]}
       >
-        <View style={[styles.debateCard, styles.commentThreadCard]}>
+        <View
+          style={[styles.debateCard, styles.commentThreadCard]}
+          onLayout={(event) => recordThreadCardHeight(threadRootId, event.nativeEvent.layout.height)}
+        >
           <View style={[styles.cardHeader, styles.threadCardHeader]}>
             <View style={styles.cardAuthorRow}>
               <View style={styles.commentAuthor}>
@@ -786,9 +1029,9 @@ export default function MainDebateScreen() {
             <Pressable
               style={styles.commentReplyContext}
               onPress={() => {
-                const targetOffset = threadSlideOffsets.current[replyTarget.id];
-                if (targetOffset === undefined) return;
-                requestThreadScroll(threadRootId, targetOffset);
+                const targetIndex = getThreadComments(threadRootId).findIndex((item) => item.id === replyTarget.id);
+                if (targetIndex < 0) return;
+                requestThreadScroll(threadRootId, targetIndex * threadSlideWidth);
                 Haptics.selectionAsync();
               }}
               accessibilityRole="button"
@@ -819,7 +1062,7 @@ export default function MainDebateScreen() {
               <View style={styles.threadMediaContainer}>
                 <PostVideo
                   uri={`${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${comment.speaker_id}/${comment.file}`}
-                  isVisible
+                  isVisible={isVisible}
                 />
               </View>
             ) : (
@@ -907,14 +1150,14 @@ export default function MainDebateScreen() {
         mediaFilename = await uploadFile(currentUser.id, newCommentVideo, 'video/mp4', `${Date.now()}-comment.mp4`);
       }
 
-      const { error } = await supabase.from('Comment').insert({
+      const { data, error } = await supabase.from('Comment').insert({
         id: Crypto.randomUUID(),
         post_id: rootPost.id,
         speaker_id: currentUser.id,
         text: newCommentText.trim(),
         file: mediaFilename,
         is_debatable: isDebatable,
-      });
+      }).select('*, speaker:User!speaker_id(id,username,avatar), likes:Like(user_id), reposts:Repost(user_id)').single();
 
       if (error) {
         console.error('Error posting comment:', error);
@@ -925,7 +1168,7 @@ export default function MainDebateScreen() {
       setNewCommentText('');
       setNewCommentPhoto('');
       setNewCommentVideo('');
-      await refetchComments();
+      addComment(data as unknown as CommentItem);
     } finally {
       setIsSubmittingComment(false);
     }
@@ -1032,6 +1275,167 @@ export default function MainDebateScreen() {
 
   const totalVotes = opVotes + challengerVotes;
   const opPercentage = totalVotes > 0 ? (opVotes / totalVotes) * 100 : 50;
+  const renderCommentThread = ({ item: comment }: { item: CommentItem }) => {
+    const threadComments = getThreadComments(comment.id);
+    const threadRepliesForRoot = threadComments.filter((item) => item.id !== comment.id);
+    const replyDraft = threadReplyDrafts[comment.id] ?? { text: '', photo: '', video: '' };
+    const replyTarget = commentById.get(threadReplyTargets[comment.id] ?? comment.id) ?? comment;
+    const activeSlide = activeThreadSlides[comment.id] ?? 0;
+    const maxCardHeight = threadMaxCardHeights[comment.id] ?? 0;
+    const failedThreadId = threadComments.find((item) => threadErrors[item.id])?.id;
+    const isLoadingThread = threadComments.some((item) => isThreadLoading(item.id));
+
+    return (
+      <View style={styles.commentThread}>
+        <CommentThreadScroller
+          width={threadSlideWidth}
+          slideCount={threadComments.length + 1}
+          request={threadScrollRequests[comment.id]}
+          initialOffset={activeSlide * threadSlideWidth}
+          onLayout={(event) => {
+            const width = event.nativeEvent.layout.width;
+            if (width > 0 && width !== threadCarouselWidth) setThreadCarouselWidth(width);
+          }}
+          onScroll={(event) => {
+            const offsetX = event.nativeEvent.contentOffset.x;
+            const index = Math.round(offsetX / threadSlideWidth);
+            setActiveThreadSlides((slides) =>
+              slides[comment.id] === index ? slides : { ...slides, [comment.id]: index }
+            );
+            if (index >= Math.max(1, threadComments.length - 2) && threadHasMore(comment.id)) {
+              void loadMoreThreadReplies(comment.id);
+            }
+            const activeComment = threadComments[index];
+            if (activeComment && activeComment.id !== comment.id) {
+              void loadMoreThreadReplies(activeComment.id, true);
+            }
+            if (index >= Math.max(1, threadComments.length - 2)) {
+              const lastComment = threadComments[threadComments.length - 1];
+              if (lastComment?.parent_comment_id && lastComment.parent_comment_id !== comment.id) {
+                void loadMoreThreadReplies(lastComment.parent_comment_id);
+              }
+            }
+          }}
+        >
+          {threadComments.map((item, index) => (
+            Math.abs(index - activeSlide) <= 1
+              ? <Fragment key={item.id}>
+                  {renderThreadCommentCard(item, comment.id, index === activeSlide, maxCardHeight)}
+                </Fragment>
+              : (
+                <View
+                  key={item.id}
+                  style={{ width: threadSlideWidth, minHeight: maxCardHeight }}
+                />
+              )
+          ))}
+          <View
+            style={[
+              styles.commentSlideWrapper,
+              { width: threadSlideWidth, minHeight: maxCardHeight, flexGrow: 0, flexShrink: 0 },
+            ]}
+          >
+            <View
+              style={[styles.debateCard, styles.commentReplyCard]}
+              onLayout={(event) => recordThreadCardHeight(comment.id, event.nativeEvent.layout.height)}
+            >
+              <View style={styles.cardHeader}>
+                <View style={styles.cardAuthorRow}>
+                  <Text style={[styles.cardAuthorName, Platform.OS === 'web' && styles.webCardAuthorName]}>
+                    Reply to @{replyTarget.speaker?.username || 'user'}
+                  </Text>
+                  <View style={styles.cardSideTagActive}>
+                    <Text style={styles.cardSideTagActiveText}>OPEN THREAD</Text>
+                  </View>
+                </View>
+              </View>
+              {replyDraft.photo ? (
+                <Image source={{ uri: replyDraft.photo }} style={styles.replyMediaPreview} />
+              ) : null}
+              {replyDraft.video ? (
+                <View style={styles.cardMediaContainer}>
+                  <PostVideo uri={replyDraft.video} isVisible />
+                </View>
+              ) : null}
+              <TextInput
+                style={styles.threadReplyInput}
+                placeholder={`Write a reply to @${replyTarget.speaker?.username || 'this user'}...`}
+                placeholderTextColor="#64748b"
+                multiline
+                value={replyDraft.text}
+                onChangeText={(text) => updateThreadReply(comment.id, { text })}
+              />
+              <View style={styles.newCommentFooter}>
+                <Pressable onPress={() => pickThreadReplyMedia(comment.id, 'image')}>
+                  <ImageIcon size={18} color="#94a3b8" />
+                </Pressable>
+                <Pressable onPress={() => pickThreadReplyMedia(comment.id, 'video')}>
+                  <VideoIcon size={18} color="#94a3b8" />
+                </Pressable>
+                <Pressable
+                  onPress={() => selectThreadReplyType(comment)}
+                  disabled={submittingThreadId === comment.id || (!replyDraft.text.trim() && !replyDraft.photo && !replyDraft.video)}
+                  style={[
+                    styles.newCommentSubmit,
+                    { opacity: submittingThreadId === comment.id || (!replyDraft.text.trim() && !replyDraft.photo && !replyDraft.video) ? 0.5 : 1 },
+                  ]}
+                >
+                  <Text style={styles.newCommentSubmitText}>
+                    {submittingThreadId === comment.id ? 'Posting...' : 'Post Reply'}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </CommentThreadScroller>
+        {isLoadingThread ? (
+          <ActivityIndicator style={styles.threadPagination} color="#22d3ee" />
+        ) : null}
+        {failedThreadId ? (
+          <Pressable
+            style={styles.threadPagination}
+            onPress={() => void loadMoreThreadReplies(failedThreadId)}
+          >
+            <Text style={styles.postActionText}>Couldn&apos;t load replies. Tap to retry.</Text>
+          </Pressable>
+        ) : null}
+        {Platform.OS === 'web' && threadComments.length + 1 > 1 ? (
+          <View pointerEvents="box-none" style={styles.webCarouselArrows}>
+            <Pressable
+              onPress={() => stepThreadSlide(comment.id, -1, threadComments.length + 1)}
+              disabled={activeSlide <= 0}
+              accessibilityRole="button"
+              accessibilityLabel="Previous comment"
+              style={[styles.webCarouselArrow, styles.webCarouselArrowLeft, activeSlide <= 0 && styles.webCarouselArrowDisabled]}
+            >
+              <ChevronLeft size={18} color="#fff" />
+            </Pressable>
+            <Pressable
+              onPress={() => stepThreadSlide(comment.id, 1, threadComments.length + 1)}
+              disabled={activeSlide >= threadComments.length}
+              accessibilityRole="button"
+              accessibilityLabel="Next comment"
+              style={[styles.webCarouselArrow, styles.webCarouselArrowRight, activeSlide >= threadComments.length && styles.webCarouselArrowDisabled]}
+            >
+              <ChevronRight size={18} color="#fff" />
+            </Pressable>
+          </View>
+        ) : null}
+        <View style={styles.threadPagination}>
+          {Array.from({ length: threadRepliesForRoot.length + 2 }).map((_, index) => (
+            <View
+              key={index}
+              style={[
+                styles.threadDot,
+                index === activeSlide && styles.threadDotActive,
+              ]}
+            />
+          ))}
+        </View>
+        <View style={styles.commentDivider} />
+      </View>
+    );
+  };
 
   return (
     <View style={[styles.screen, Platform.OS === 'web' && styles.webColumn]}>
@@ -1058,8 +1462,15 @@ export default function MainDebateScreen() {
             </View>
           ) : (
             <>
-            <ScrollView
+            <FlatList
               ref={mainScrollRef}
+              data={topLevelComments}
+              renderItem={renderCommentThread}
+              keyExtractor={(comment) => comment.id}
+              onEndReached={() => void loadMoreTopLevel()}
+              onEndReachedThreshold={0.5}
+              onViewableItemsChanged={commentViewabilityCallback}
+              viewabilityConfig={COMMENT_VIEWABILITY_CONFIG}
               contentContainerStyle={styles.mainScrollContent}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
@@ -1073,7 +1484,8 @@ export default function MainDebateScreen() {
                   colors={['#22d3ee']}
                 />
               )}
-            >
+              ListHeaderComponent={
+                <View>
               {/* Carousel Section (Horizontal swipeable opinion cards) */}
               <View style={styles.carouselContainer}>
                 <ScrollView
@@ -1098,7 +1510,7 @@ export default function MainDebateScreen() {
                     const isOpCard = item.side === 'root';
                     return (
                       <View key={item.id} style={[styles.cardWrapper, { width: screenWidth }, Platform.OS === 'web' && styles.webCardWrapper]}>
-                        <View
+                        {Math.abs(index - activeIndex) <= 1 ? <View
                           style={[
                             styles.debateCard,
                             Platform.OS === 'web' && styles.webDebateCard,
@@ -1163,13 +1575,13 @@ export default function MainDebateScreen() {
                           <Text style={styles.cardTimestamp}>
                             {formatExchangeDate(item.createdAt)}
                           </Text>
-                        </View>
+                        </View> : <View style={{ width: screenWidth }} />}
                       </View>
                     );
                   })}
 
                   {/* FINAL SLIDE: Render ONLY if it is currently the logged-in user's debate and turn */}
-                  {isCurrentUserTurn ? (
+                  {canComposeCounter ? (
                     <View style={[styles.cardWrapper, { width: screenWidth }, Platform.OS === 'web' && styles.webCardWrapper]}>
                       <View style={[styles.debateCard, Platform.OS === 'web' && styles.webDebateCard, styles.inputCardBorder]}>
                         {Platform.OS !== 'web' ? (
@@ -1220,7 +1632,7 @@ export default function MainDebateScreen() {
                           {/* Attached Video Preview */}
                           {replyVideo ? (
                             <View style={styles.composerMediaPreview}>
-                              <PostVideo uri={replyVideo} isVisible={true} />
+                              <PostVideo uri={replyVideo} isVisible={activeIndex === exchanges.length} />
                               <Pressable
                                 onPress={() => setReplyVideo('')}
                                 style={styles.removeMediaBtn}
@@ -1306,6 +1718,21 @@ export default function MainDebateScreen() {
                     })}
                   </View>
                 </View>
+                {isLoadingMoreSegments ? (
+                  <ActivityIndicator style={styles.segmentLoadingIndicator} color="#22d3ee" />
+                ) : null}
+                {segmentLoadError || latestSegmentLoadError ? (
+                  <Pressable
+                    style={styles.segmentLoadingIndicator}
+                    onPress={() => {
+                      setActiveIndex(0);
+                      scrollRef.current?.scrollTo({ x: 0, animated: false });
+                      void loadDebateData(false);
+                    }}
+                  >
+                    <Text style={styles.postActionText}>Couldn&apos;t load debate cards. Tap to retry.</Text>
+                  </Pressable>
+                ) : null}
               </View>
 
               <View style={styles.postActionsRow}>
@@ -1324,8 +1751,8 @@ export default function MainDebateScreen() {
                   style={styles.postAction}
                 >
                   <MessageCircle size={20} color="#b0b0b0" />
-                  {(comments?.length ?? 0) > 0 ? (
-                    <Text style={styles.postActionText}>{comments!.length}</Text>
+                  {loadedCommentCount > 0 ? (
+                    <Text style={styles.postActionText}>{loadedCommentCount}</Text>
                   ) : null}
                 </Pressable>
                 <Pressable onPress={handleToggleRepost} style={styles.postAction}>
@@ -1339,131 +1766,39 @@ export default function MainDebateScreen() {
               {/* Debate Separator Line extending edge-to-edge */}
               <View style={styles.fullWidthDivider} />
 
-              {/* Comments Section */}
-              <View style={styles.commentsContainer}>
-                {!(comments ?? []).some((comment) => !comment.parent_comment_id) ? (
-                  <Text style={styles.noCommentsText}>No comments yet.</Text>
-                ) : (
-                  (comments ?? []).filter((comment) => !comment.parent_comment_id).map((comment) => {
-                    const threadComments = getThreadComments(comment.id);
-                    const threadReplies = threadComments.filter((item) => item.id !== comment.id);
-                    const replyDraft = threadReplyDrafts[comment.id] ?? { text: '', photo: '', video: '' };
-                    const replyTarget = (comments ?? []).find(
-                      (item) => item.id === (threadReplyTargets[comment.id] ?? comment.id)
-                    ) ?? comment;
-
-                    return (
-                      <View key={comment.id} style={styles.commentThread}>
-                        <CommentThreadScroller
-                          width={threadSlideWidth}
-                          slideCount={threadComments.length + 1}
-                          request={threadScrollRequests[comment.id]}
-                          onLayout={(event) => {
-                            const width = event.nativeEvent.layout.width;
-                            if (width > 0 && width !== threadCarouselWidth) setThreadCarouselWidth(width);
-                          }}
-                          onScroll={(event) => {
-                            const offsetX = event.nativeEvent.contentOffset.x;
-                            const index = Math.round(offsetX / threadSlideWidth);
-                            setActiveThreadSlides((slides) =>
-                              slides[comment.id] === index ? slides : { ...slides, [comment.id]: index }
-                            );
-                          }}
-                        >
-                          {threadComments.map((item) => (
-                            <Fragment key={item.id}>{renderThreadCommentCard(item, comment.id)}</Fragment>
-                          ))}
-                          <View style={[styles.commentSlideWrapper, { width: threadSlideWidth }]}>
-                            <View style={[styles.debateCard, styles.commentReplyCard]}>
-                              <View style={styles.cardHeader}>
-                                <View style={styles.cardAuthorRow}>
-                                  <Text style={[styles.cardAuthorName, Platform.OS === 'web' && styles.webCardAuthorName]}>
-                                    Reply to @{replyTarget.speaker?.username || 'user'}
-                                  </Text>
-                                  <View style={styles.cardSideTagActive}>
-                                    <Text style={styles.cardSideTagActiveText}>OPEN THREAD</Text>
-                                  </View>
-                                </View>
-                              </View>
-                              {replyDraft.photo ? (
-                                <Image source={{ uri: replyDraft.photo }} style={styles.replyMediaPreview} />
-                              ) : null}
-                              {replyDraft.video ? (
-                                <View style={styles.cardMediaContainer}>
-                                  <PostVideo uri={replyDraft.video} isVisible />
-                                </View>
-                              ) : null}
-                              <TextInput
-                                style={styles.threadReplyInput}
-                                placeholder={`Write a reply to @${replyTarget.speaker?.username || 'this user'}...`}
-                                placeholderTextColor="#64748b"
-                                multiline
-                                value={replyDraft.text}
-                                onChangeText={(text) => updateThreadReply(comment.id, { text })}
-                              />
-                              <View style={styles.newCommentFooter}>
-                                <Pressable onPress={() => pickThreadReplyMedia(comment.id, 'image')}>
-                                  <ImageIcon size={18} color="#94a3b8" />
-                                </Pressable>
-                                <Pressable onPress={() => pickThreadReplyMedia(comment.id, 'video')}>
-                                  <VideoIcon size={18} color="#94a3b8" />
-                                </Pressable>
-                                <Pressable
-                                  onPress={() => selectThreadReplyType(comment)}
-                                  disabled={submittingThreadId === comment.id || (!replyDraft.text.trim() && !replyDraft.photo && !replyDraft.video)}
-                                  style={[
-                                    styles.newCommentSubmit,
-                                    { opacity: submittingThreadId === comment.id || (!replyDraft.text.trim() && !replyDraft.photo && !replyDraft.video) ? 0.5 : 1 },
-                                  ]}
-                                >
-                                  <Text style={styles.newCommentSubmitText}>
-                                    {submittingThreadId === comment.id ? 'Posting...' : 'Post Reply'}
-                                  </Text>
-                                </Pressable>
-                              </View>
-                            </View>
-                          </View>
-                        </CommentThreadScroller>
-                        {Platform.OS === 'web' && threadComments.length + 1 > 1 ? (
-                          <View pointerEvents="box-none" style={styles.webCarouselArrows}>
-                            <Pressable
-                              onPress={() => stepThreadSlide(comment.id, -1, threadComments.length + 1)}
-                              disabled={(activeThreadSlides[comment.id] ?? 0) <= 0}
-                              accessibilityRole="button"
-                              accessibilityLabel="Previous comment"
-                              style={[styles.webCarouselArrow, styles.webCarouselArrowLeft, (activeThreadSlides[comment.id] ?? 0) <= 0 && styles.webCarouselArrowDisabled]}
-                            >
-                              <ChevronLeft size={18} color="#fff" />
-                            </Pressable>
-                            <Pressable
-                              onPress={() => stepThreadSlide(comment.id, 1, threadComments.length + 1)}
-                              disabled={(activeThreadSlides[comment.id] ?? 0) >= threadComments.length}
-                              accessibilityRole="button"
-                              accessibilityLabel="Next comment"
-                              style={[styles.webCarouselArrow, styles.webCarouselArrowRight, (activeThreadSlides[comment.id] ?? 0) >= threadComments.length && styles.webCarouselArrowDisabled]}
-                            >
-                              <ChevronRight size={18} color="#fff" />
-                            </Pressable>
-                          </View>
-                        ) : null}
-                        <View style={styles.threadPagination}>
-                          {Array.from({ length: threadReplies.length + 2 }).map((_, index) => (
-                            <View
-                              key={index}
-                              style={[
-                                styles.threadDot,
-                                index === (activeThreadSlides[comment.id] ?? 0) && styles.threadDotActive,
-                              ]}
-                            />
-                          ))}
-                        </View>
-                        <View style={styles.commentDivider} />
-                      </View>
-                    );
-                  })
-                )}
               </View>
-            </ScrollView>
+              }
+              ListEmptyComponent={
+                isLoadingComments
+                  ? <ActivityIndicator style={styles.commentsContainer} color="#22d3ee" />
+                  : commentsError
+                    ? (
+                      <View style={styles.commentsContainer}>
+                        <Text style={styles.noCommentsText}>Couldn&apos;t load comments.</Text>
+                        <Pressable onPress={() => void refetchComments()}>
+                          <Text style={styles.postActionText}>Tap to retry</Text>
+                        </Pressable>
+                      </View>
+                    )
+                  : <Text style={[styles.noCommentsText, styles.commentsContainer]}>No comments yet.</Text>
+              }
+              ListFooterComponent={
+                isLoadingMoreTopLevel
+                  ? <ActivityIndicator style={styles.commentsContainer} color="#22d3ee" />
+                  : commentsError && hasMoreTopLevel
+                    ? (
+                      <Pressable
+                        style={styles.commentsContainer}
+                        onPress={() => void loadMoreTopLevel()}
+                      >
+                        <Text style={styles.postActionText}>Couldn&apos;t load more comments. Tap to retry.</Text>
+                      </Pressable>
+                    )
+                  : hasMoreTopLevel
+                    ? <View style={styles.commentsContainer} />
+                    : null
+              }
+            />
 
             {/* Add a comment - pinned to the bottom, always visible while scrolling */}
             <View style={styles.newCommentBox}>
@@ -1775,6 +2110,9 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 4,
   },
+  segmentLoadingIndicator: {
+    marginVertical: 8,
+  },
   webCarouselArrows: {
     ...StyleSheet.absoluteFill,
     justifyContent: 'center',
@@ -1852,7 +2190,11 @@ const styles = StyleSheet.create({
   commentSlideWrapper: {
     paddingHorizontal: 0,
     justifyContent: 'center',
-    alignItems: 'stretch',
+    alignItems: 'center',
+  },
+  threadCarouselViewport: {
+    width: '100%',
+    alignItems: 'center',
   },
   commentThreadCard: {
     width: '90%',
