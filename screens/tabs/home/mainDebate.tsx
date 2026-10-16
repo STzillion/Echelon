@@ -119,12 +119,106 @@ type ThreadScrollRequest = {
 };
 
 const COMMENT_VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 10 };
+const MAX_VISIBLE_CAROUSEL_DOTS = 7;
+const CAROUSEL_DOT_SLOT_SIZE = 14;
+
+function getVisibleCarouselDotIndices(totalCount: number, windowAnchorIndex: number) {
+  const visibleCount = Math.min(totalCount, MAX_VISIBLE_CAROUSEL_DOTS);
+  const maxStartIndex = Math.max(0, totalCount - visibleCount);
+  const startIndex = Math.max(0, Math.min(windowAnchorIndex - Math.floor(visibleCount / 2), maxStartIndex));
+  return Array.from({ length: visibleCount }, (_, index) => startIndex + index);
+}
+
+function CarouselPagination({
+  totalCount,
+  activeIndex,
+  progressValue,
+  progressWidth,
+  windowAnchorIndex,
+  onDotPress,
+  accessibilityLabel,
+}: {
+  totalCount: number;
+  activeIndex: number;
+  progressValue?: Animated.Value;
+  progressWidth?: number;
+  windowAnchorIndex?: number;
+  onDotPress?: (index: number) => void;
+  accessibilityLabel?: string;
+}) {
+  const [localProgressValue] = useState(() => new Animated.Value(activeIndex));
+  const progress = progressValue
+    ? Animated.divide(progressValue, progressWidth ?? 1)
+    : localProgressValue;
+
+  const indices = getVisibleCarouselDotIndices(totalCount, windowAnchorIndex ?? activeIndex);
+  const centerPosition = Math.floor(indices.length / 2);
+  const startIndex = indices[0] ?? 0;
+  const translateX = Animated.multiply(
+    Animated.add(progress, -(startIndex + centerPosition)),
+    -CAROUSEL_DOT_SLOT_SIZE
+  );
+
+  return (
+    <View
+      style={[
+        styles.dotsIndicatorViewport,
+        { width: indices.length * CAROUSEL_DOT_SLOT_SIZE },
+      ]}
+    >
+      <Animated.View
+        style={[
+          styles.dotsIndicatorContainer,
+          { transform: [{ translateX }] },
+        ]}
+      >
+        {indices.map((index) => {
+          const dotScale = progress.interpolate({
+            inputRange: [index - 2, index - 1, index, index + 1, index + 2],
+            outputRange: [0.25, 0.625, 1, 0.625, 0.25],
+            extrapolate: 'clamp',
+          });
+          const dotColor = progress.interpolate({
+            inputRange: [index - 0.65, index, index + 0.65],
+            outputRange: ['#454545', 'rgba(34, 211, 238, 0.65)', '#454545'],
+            extrapolate: 'clamp',
+          });
+          const dot = (
+            <Animated.View
+              style={[
+                styles.dot,
+                {
+                  backgroundColor: dotColor,
+                  transform: [{ scale: dotScale }],
+                },
+              ]}
+            />
+          );
+
+          return onDotPress ? (
+            <Pressable
+              key={index}
+              onPress={() => onDotPress(index)}
+              accessibilityRole="button"
+              accessibilityLabel={accessibilityLabel ? `${accessibilityLabel} ${index + 1}` : undefined}
+            >
+              <View style={styles.dotsIndicatorSlot}>{dot}</View>
+            </Pressable>
+          ) : (
+            <View key={index} style={styles.dotsIndicatorSlot}>{dot}</View>
+          );
+        })}
+      </Animated.View>
+    </View>
+  );
+}
 
 function CommentThreadScroller({
   width,
   slideCount,
   request,
   initialOffset,
+  dotScrollOffset,
   onLayout,
   onScroll,
   children,
@@ -133,6 +227,7 @@ function CommentThreadScroller({
   slideCount: number;
   request?: ThreadScrollRequest;
   initialOffset: number;
+  dotScrollOffset: Animated.Value;
   onLayout: (event: LayoutChangeEvent) => void;
   onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   children: ReactNode;
@@ -177,6 +272,8 @@ function CommentThreadScroller({
     const offsetX = event.nativeEvent.contentOffset.x;
     const nearestIndex = Math.max(0, Math.min(Math.round(offsetX / width), slideCount - 1));
     const targetOffset = nearestIndex * width;
+    activeIndexRef.current = nearestIndex;
+    onScroll(event);
     if (Math.abs(offsetX - targetOffset) > 1) {
       nativeScrollRef.current?.scrollTo({ x: targetOffset, animated: true });
     }
@@ -244,6 +341,8 @@ export default function MainDebateScreen() {
   const segmentTotalCount = useRef(0);
   const loadedSegmentIds = useRef<Set<string>>(new Set());
   const [activeIndex, setActiveIndex] = useState(0);
+  const [debateDotWindowAnchor, setDebateDotWindowAnchor] = useState(0);
+  const [debateDotProgress] = useState(() => new Animated.Value(0));
   const [hideExchangesBanner, setHideExchangesBanner] = useState(false);
   const [repostCount, setRepostCount] = useState(0);
   const [isReposted, setIsReposted] = useState(false);
@@ -255,7 +354,6 @@ export default function MainDebateScreen() {
     isLoading: isLoadingComments,
     isLoadingMoreTopLevel,
     hasMoreTopLevel,
-    isThreadLoading,
     threadHasMore,
     loadMoreTopLevel,
     loadMoreThreadReplies,
@@ -630,6 +728,10 @@ export default function MainDebateScreen() {
 
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const offsetX = e.nativeEvent.contentOffset.x;
+    debateDotProgress.setValue(offsetX);
+    const progress = offsetX / screenWidth;
+    const windowAnchor = Math.floor(progress);
+    setDebateDotWindowAnchor((current) => current === windowAnchor ? current : windowAnchor);
     const index = Math.round(offsetX / screenWidth);
     if (index !== activeIndex && index >= 0 && index < totalSlides) {
       setActiveIndex(index);
@@ -637,6 +739,15 @@ export default function MainDebateScreen() {
     if (hasMoreSegments && index >= exchanges.length - 3) {
       void loadMoreSegments();
     }
+  };
+
+  const onDebateMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const index = Math.max(
+      0,
+      Math.min(Math.round(event.nativeEvent.contentOffset.x / screenWidth), totalSlides - 1)
+    );
+    setActiveIndex(index);
+    onScroll(event);
   };
 
   const handlePickPhoto = async () => {
@@ -853,8 +964,11 @@ export default function MainDebateScreen() {
   const [threadReplyTargets, setThreadReplyTargets] = useState<Record<string, string>>({});
   const [submittingThreadId, setSubmittingThreadId] = useState<string | null>(null);
   const [activeThreadSlides, setActiveThreadSlides] = useState<Record<string, number>>({});
+  const [threadDotWindowAnchors, setThreadDotWindowAnchors] = useState<Record<string, number>>({});
+  const threadDotProgressValues = useRef<Record<string, Animated.Value>>({});
   const [threadScrollRequests, setThreadScrollRequests] = useState<Record<string, ThreadScrollRequest>>({});
   const [threadMaxCardHeights, setThreadMaxCardHeights] = useState<Record<string, number>>({});
+  const [maxDebateSegmentHeight, setMaxDebateSegmentHeight] = useState(0);
   const [threadCarouselWidth, setThreadCarouselWidth] = useState(screenWidth);
   const threadSlideWidth = threadCarouselWidth;
   const commentById = useMemo(() => new Map(comments.map((comment) => [comment.id, comment])), [comments]);
@@ -877,12 +991,15 @@ export default function MainDebateScreen() {
   }, [loadMoreThreadReplies]);
 
   const requestThreadScroll = (threadRootId: string, offset: number) => {
+    const targetIndex = Math.max(0, Math.min(Math.round(offset / threadSlideWidth), getThreadComments(threadRootId).length));
+    if (Platform.OS === 'web') {
+      threadDotProgressValues.current[threadRootId]?.setValue(offset);
+      setThreadDotWindowAnchors((anchors) => ({ ...anchors, [threadRootId]: targetIndex }));
+    }
     setThreadScrollRequests((requests) => ({
       ...requests,
       [threadRootId]: { offset, token: (requests[threadRootId]?.token ?? 0) + 1 },
     }));
-    const maxSlideIndex = getThreadComments(threadRootId).length;
-    const targetIndex = Math.max(0, Math.min(Math.round(offset / threadSlideWidth), maxSlideIndex));
     setActiveThreadSlides((slides) => ({ ...slides, [threadRootId]: targetIndex }));
   };
 
@@ -982,6 +1099,12 @@ export default function MainDebateScreen() {
       if (height <= (heights[threadRootId] ?? 0) + 1) return heights;
       return { ...heights, [threadRootId]: height };
     });
+  };
+
+  const recordDebateSegmentHeight = (height: number) => {
+    setMaxDebateSegmentHeight((currentHeight) =>
+      height > currentHeight + 1 ? height : currentHeight
+    );
   };
 
   const renderThreadCommentCard = (
@@ -1281,9 +1404,13 @@ export default function MainDebateScreen() {
     const replyDraft = threadReplyDrafts[comment.id] ?? { text: '', photo: '', video: '' };
     const replyTarget = commentById.get(threadReplyTargets[comment.id] ?? comment.id) ?? comment;
     const activeSlide = activeThreadSlides[comment.id] ?? 0;
+    let dotScrollOffset = threadDotProgressValues.current[comment.id];
+    if (!dotScrollOffset) {
+      dotScrollOffset = new Animated.Value(activeSlide * threadSlideWidth);
+      threadDotProgressValues.current[comment.id] = dotScrollOffset;
+    }
     const maxCardHeight = threadMaxCardHeights[comment.id] ?? 0;
     const failedThreadId = threadComments.find((item) => threadErrors[item.id])?.id;
-    const isLoadingThread = threadComments.some((item) => isThreadLoading(item.id));
 
     return (
       <View style={styles.commentThread}>
@@ -1292,12 +1419,21 @@ export default function MainDebateScreen() {
           slideCount={threadComments.length + 1}
           request={threadScrollRequests[comment.id]}
           initialOffset={activeSlide * threadSlideWidth}
+          dotScrollOffset={dotScrollOffset}
           onLayout={(event) => {
             const width = event.nativeEvent.layout.width;
             if (width > 0 && width !== threadCarouselWidth) setThreadCarouselWidth(width);
           }}
           onScroll={(event) => {
             const offsetX = event.nativeEvent.contentOffset.x;
+            dotScrollOffset?.setValue(offsetX);
+            const progress = offsetX / threadSlideWidth;
+            const windowAnchor = Math.floor(progress);
+            setThreadDotWindowAnchors((anchors) =>
+              anchors[comment.id] === windowAnchor
+                ? anchors
+                : { ...anchors, [comment.id]: windowAnchor }
+            );
             const index = Math.round(offsetX / threadSlideWidth);
             setActiveThreadSlides((slides) =>
               slides[comment.id] === index ? slides : { ...slides, [comment.id]: index }
@@ -1388,9 +1524,6 @@ export default function MainDebateScreen() {
             </View>
           </View>
         </CommentThreadScroller>
-        {isLoadingThread ? (
-          <ActivityIndicator style={styles.threadPagination} color="#22d3ee" />
-        ) : null}
         {failedThreadId ? (
           <Pressable
             style={styles.threadPagination}
@@ -1422,15 +1555,13 @@ export default function MainDebateScreen() {
           </View>
         ) : null}
         <View style={styles.threadPagination}>
-          {Array.from({ length: threadRepliesForRoot.length + 2 }).map((_, index) => (
-            <View
-              key={index}
-              style={[
-                styles.threadDot,
-                index === activeSlide && styles.threadDotActive,
-              ]}
-            />
-          ))}
+          <CarouselPagination
+            totalCount={threadRepliesForRoot.length + 2}
+            activeIndex={activeSlide}
+            progressValue={dotScrollOffset}
+            progressWidth={threadSlideWidth}
+            windowAnchorIndex={threadDotWindowAnchors[comment.id] ?? 0}
+          />
         </View>
         <View style={styles.commentDivider} />
       </View>
@@ -1495,6 +1626,7 @@ export default function MainDebateScreen() {
                   contentContainerStyle={Platform.OS === 'web' ? styles.webDebateCarouselContent : undefined}
                   showsHorizontalScrollIndicator={false}
                   onScroll={onScroll}
+                  onMomentumScrollEnd={onDebateMomentumScrollEnd}
                   scrollEventThrottle={16}
                   decelerationRate="fast"
                   snapToInterval={screenWidth}
@@ -1509,13 +1641,21 @@ export default function MainDebateScreen() {
                   {exchanges.map((item, index) => {
                     const isOpCard = item.side === 'root';
                     return (
-                      <View key={item.id} style={[styles.cardWrapper, { width: screenWidth }, Platform.OS === 'web' && styles.webCardWrapper]}>
+                      <View
+                        key={item.id}
+                        style={[
+                          styles.cardWrapper,
+                          { width: screenWidth, minHeight: maxDebateSegmentHeight },
+                          Platform.OS === 'web' && styles.webCardWrapper,
+                        ]}
+                      >
                         {Math.abs(index - activeIndex) <= 1 ? <View
                           style={[
                             styles.debateCard,
                             Platform.OS === 'web' && styles.webDebateCard,
                             isOpCard ? styles.opCardBorder : styles.challengerCardBorder,
                           ]}
+                          onLayout={(event) => recordDebateSegmentHeight(event.nativeEvent.layout.height)}
                         >
                           {Platform.OS !== 'web' ? (
                             <BlurView intensity={24} tint="dark" style={StyleSheet.absoluteFill} />
@@ -1575,15 +1715,24 @@ export default function MainDebateScreen() {
                           <Text style={styles.cardTimestamp}>
                             {formatExchangeDate(item.createdAt)}
                           </Text>
-                        </View> : <View style={{ width: screenWidth }} />}
+                        </View> : <View style={{ width: screenWidth, minHeight: maxDebateSegmentHeight }} />}
                       </View>
                     );
                   })}
 
                   {/* FINAL SLIDE: Render ONLY if it is currently the logged-in user's debate and turn */}
                   {canComposeCounter ? (
-                    <View style={[styles.cardWrapper, { width: screenWidth }, Platform.OS === 'web' && styles.webCardWrapper]}>
-                      <View style={[styles.debateCard, Platform.OS === 'web' && styles.webDebateCard, styles.inputCardBorder]}>
+                    <View
+                      style={[
+                        styles.cardWrapper,
+                        { width: screenWidth, minHeight: maxDebateSegmentHeight },
+                        Platform.OS === 'web' && styles.webCardWrapper,
+                      ]}
+                    >
+                      <View
+                        style={[styles.debateCard, Platform.OS === 'web' && styles.webDebateCard, styles.inputCardBorder]}
+                        onLayout={(event) => recordDebateSegmentHeight(event.nativeEvent.layout.height)}
+                      >
                         {Platform.OS !== 'web' ? (
                           <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} />
                         ) : null}
@@ -1702,21 +1851,15 @@ export default function MainDebateScreen() {
 
                 {/* Pagination Dots (Synced with active slide) */}
                 <View style={styles.paginationRow}>
-                  <View style={styles.dotsIndicatorContainer}>
-                    {Array.from({ length: totalSlides }).map((_, idx) => {
-                      const isActive = idx === activeIndex;
-                      return (
-                        <Pressable
-                          key={idx}
-                          onPress={() => scrollToSlide(idx)}
-                          style={[
-                            styles.dot,
-                            isActive && styles.dotActive,
-                          ]}
-                        />
-                      );
-                    })}
-                  </View>
+                  <CarouselPagination
+                    totalCount={totalSlides}
+                    activeIndex={activeIndex}
+                    progressValue={debateDotProgress}
+                    progressWidth={screenWidth}
+                    windowAnchorIndex={debateDotWindowAnchor}
+                    onDotPress={scrollToSlide}
+                    accessibilityLabel="Go to debate segment"
+                  />
                 </View>
                 {isLoadingMoreSegments ? (
                   <ActivityIndicator style={styles.segmentLoadingIndicator} color="#22d3ee" />
@@ -1917,7 +2060,7 @@ const styles = StyleSheet.create({
   },
   webCardWrapper: {
     alignSelf: 'flex-start',
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
   },
   debateCard: {
     width: '100%',
@@ -2162,16 +2305,23 @@ const styles = StyleSheet.create({
   dotsIndicatorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+  },
+  dotsIndicatorViewport: {
+    overflow: 'hidden',
+    alignItems: 'flex-start',
+  },
+  dotsIndicatorSlot: {
+    width: CAROUSEL_DOT_SLOT_SIZE,
+    height: CAROUSEL_DOT_SLOT_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   dot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: '#454545',
-  },
-  dotActive: {
-    backgroundColor: 'rgba(34, 211, 238, 0.65)',
+    alignSelf: 'center',
   },
   fullWidthDivider: {
     height: 1,
