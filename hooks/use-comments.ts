@@ -81,17 +81,19 @@ export const useComments = (postId?: string) => {
   const threadCursors = useRef<Record<string, CommentCursor | null>>({});
   const threadHasMoreRef = useRef<Record<string, boolean>>({});
   const threadLoading = useRef<Set<string>>(new Set());
+  const knownCommentIds = useRef(new Set<string>());
   const currentPostId = useRef(postId);
 
   const loadTopLevel = useCallback(async (reset = false, preserveThreadPages = false) => {
-    if (!postId || topLoading.current.has(postId)) return;
-    if (!reset && !topHasMore.current) return;
+    if (!postId || topLoading.current.has(postId)) return 0;
+    if (!reset && !topHasMore.current) return 0;
 
     topLoading.current.add(postId);
     if (reset) {
       topCursor.current = null;
       topHasMore.current = true;
       if (!preserveThreadPages) {
+        knownCommentIds.current.clear();
         threadCursors.current = {};
         threadHasMoreRef.current = {};
         threadLoading.current.clear();
@@ -116,22 +118,25 @@ export const useComments = (postId?: string) => {
           : Promise.resolve(null),
       ]);
 
-      if (currentPostId.current !== postId) return;
+      if (currentPostId.current !== postId) return 0;
       if (countResult?.error) throw countResult.error;
 
       topCursor.current = page.nextCursor;
       topHasMore.current = page.hasMore;
       setHasMoreTopLevel(page.hasMore);
+      page.comments.forEach((comment) => knownCommentIds.current.add(comment.id));
       setTopLevelComments((current) => {
         const base = reset ? [] : current;
         const knownIds = new Set(base.map((comment) => comment.id));
         return [...base, ...page.comments.filter((comment) => !knownIds.has(comment.id))];
       });
       if (countResult) setCommentCount(countResult.count ?? 0);
+      return page.comments.length;
     } catch (cause) {
       const loadError = cause instanceof Error ? cause : new Error(String(cause));
       setError(loadError);
       console.error('Error loading comments:', loadError);
+      return 0;
     } finally {
       topLoading.current.delete(postId);
       if (currentPostId.current === postId) {
@@ -156,6 +161,7 @@ export const useComments = (postId?: string) => {
       threadCursors.current[threadRootId] = page.nextCursor;
       threadHasMoreRef.current[threadRootId] = page.hasMore;
       setThreadHasMore((current) => ({ ...current, [threadRootId]: page.hasMore }));
+      page.comments.forEach((comment) => knownCommentIds.current.add(comment.id));
       setThreadReplies((current) => {
         const existing = current[threadRootId] ?? [];
         const knownIds = new Set(existing.map((comment) => comment.id));
@@ -198,7 +204,10 @@ export const useComments = (postId?: string) => {
     ));
   }, []);
 
-  const addComment = useCallback((comment: CommentItem) => {
+  const addComment = useCallback((comment: CommentItem, incrementCount = true) => {
+    if (knownCommentIds.current.has(comment.id)) return;
+    knownCommentIds.current.add(comment.id);
+
     if (comment.parent_comment_id) {
       const threadRootId = comment.parent_comment_id;
       setThreadReplies((current) => {
@@ -219,15 +228,52 @@ export const useComments = (postId?: string) => {
         );
       });
     }
-    setCommentCount((count) => count + 1);
+    if (incrementCount) setCommentCount((count) => count + 1);
   }, []);
+
+  const loadCommentPath = useCallback(async (commentId: string) => {
+    if (!postId) return;
+
+    const path: CommentItem[] = [];
+    const visited = new Set<string>();
+    let nextCommentId: string | null = commentId;
+
+    while (nextCommentId && !visited.has(nextCommentId)) {
+      visited.add(nextCommentId);
+      const { data: comment, error: fetchError } = await supabase
+        .from('Comment')
+        .select('*, speaker:User!speaker_id(id,username,avatar), likes:Like(user_id), reposts:Repost(user_id)')
+        .eq('post_id', postId)
+        .eq('id', nextCommentId)
+        .maybeSingle();
+
+      if (fetchError) throw fetchError;
+      if (!comment) throw new Error(`Could not find comment ${nextCommentId}.`);
+
+      const item = comment as unknown as CommentItem;
+      path.push(item);
+      nextCommentId = item.parent_comment_id ?? null;
+    }
+
+    if (nextCommentId) throw new Error('A cycle was found in the comment reply chain.');
+    path.reverse().forEach((comment) => addComment(comment, false));
+  }, [addComment, postId]);
 
   const data = useMemo(
     () => [...topLevelComments, ...Object.values(threadReplies).flat()],
     [topLevelComments, threadReplies]
   );
 
-  const refetch = useCallback(() => loadTopLevel(true, true), [loadTopLevel]);
+  const refetch = useCallback(async () => {
+    const loadedCount = topLevelComments.length;
+    let restoredCount = await loadTopLevel(true, true);
+
+    while (restoredCount < loadedCount && topHasMore.current) {
+      const nextCount = await loadTopLevel(false);
+      if (!nextCount) break;
+      restoredCount += nextCount;
+    }
+  }, [loadTopLevel, topLevelComments.length]);
 
   return {
     data,
@@ -242,6 +288,7 @@ export const useComments = (postId?: string) => {
     threadHasMore: (threadRootId: string) => threadHasMore[threadRootId] !== false,
     loadMoreTopLevel: () => loadTopLevel(false),
     loadMoreThreadReplies,
+    loadCommentPath,
     addComment,
     updateComment,
     error,
