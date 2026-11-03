@@ -879,8 +879,14 @@ const styles = StyleSheet.create({
   },
   webColumn: {
     width: '100%',
-    maxWidth: 500,
+    maxWidth: 560,
     alignSelf: 'center',
+    marginTop: 64,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   usernameNoMargin: {
   marginLeft: 0,
@@ -955,16 +961,16 @@ const styles = StyleSheet.create({
   },
   webHeader: {
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 14,
   },
   webLogoCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
   },
   webLogo: {
-    width: 58,
-    height: 58,
+    width: 70,
+    height: 70,
   },
     logo: {
     width: 100,
@@ -1262,4 +1268,3 @@ const styles = StyleSheet.create({
   },
 
 });
-
