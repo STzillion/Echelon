@@ -9,8 +9,9 @@ import {
   withStyleContext,
   useStyleContext,
 } from '@gluestack-ui/nativewind-utils/withStyleContext';
-const SCOPE = 'AVATAR';
 import type { VariantProps } from '@gluestack-ui/nativewind-utils';
+
+const SCOPE = 'AVATAR';
 
 const UIAvatar = createAvatar({
   Root: withStyleContext(View, SCOPE),
@@ -24,12 +25,12 @@ const avatarStyle = tva({
   base: 'rounded-full justify-center items-center relative bg-primary-600 group-[.avatar-group]/avatar-group:-ml-2.5',
   variants: {
     size: {
-      'xs': 'w-6 h-6',
-      'sm': 'w-8 h-8',
-      'md': 'w-12 h-12',
-      'lg': 'w-16 h-16',
-      'xl': 'w-24 h-24',
-      '2xl': 'w-32 h-32',
+      'xs': 'w-[21.6px] h-[21.6px]',
+      'sm': 'w-[28.8px] h-[28.8px]',
+      'md': 'w-[43.2px] h-[43.2px]',
+      'lg': 'w-[57.6px] h-[57.6px]',
+      'xl': 'w-[86.4px] h-[86.4px]',
+      '2xl': 'w-[115.2px] h-[115.2px]',
     },
   },
 });

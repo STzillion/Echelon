@@ -1,6 +1,7 @@
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { createCompactStyleSheet } from '@/lib/compact-ui';
 
 interface SocialVideoPlayerProps {
   uri: string;
@@ -69,7 +70,7 @@ export function PostVideo({ uri, isVisible }: SocialVideoPlayerProps) {
       </Pressable>
 
       {/*<Pressable style={styles.muteButton} onPress={toggleMute}>
-        {isMuted ? <VolumeX size={16} color="white" /> : <Volume2 size={16} color="white" />}
+        {isMuted ? <VolumeX size={14} color="white" /> : <Volume2 size={14} color="white" />}
       </Pressable>
       */}
     </View>
@@ -77,7 +78,7 @@ export function PostVideo({ uri, isVisible }: SocialVideoPlayerProps) {
 }
 
 
-const styles = StyleSheet.create({
+const styles = createCompactStyleSheet({
   container: {
     width: '100%',
     height: 300,

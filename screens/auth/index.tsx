@@ -1,4 +1,5 @@
 import { SafeAreaView, View, Platform, StyleSheet, Text, Image } from 'react-native';
+import { createCompactStyleSheet } from '@/lib/compact-ui';
 import React from 'react';
 import { Button, ButtonText } from '@/components/ui/button';
 import { useRouter } from 'expo-router';
@@ -100,7 +101,7 @@ export default function WelcomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createCompactStyleSheet({
   container: {
     flex: 1,
     backgroundColor: '#000',

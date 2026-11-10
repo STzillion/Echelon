@@ -4,6 +4,7 @@ import { Button, ButtonText } from '@/components/ui/button';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { TouchableOpacity } from 'react-native';
+import { createCompactStyleSheet } from '@/lib/compact-ui';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 
@@ -75,7 +76,7 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createCompactStyleSheet({
   screen: {
     flex: 1,
     backgroundColor: '#000',
@@ -148,4 +149,3 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
-

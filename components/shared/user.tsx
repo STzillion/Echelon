@@ -11,7 +11,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { router, useFocusEffect } from 'expo-router';
 import { EyeIcon, Heart, MessageCircle, Repeat, Swords, VoteIcon } from 'lucide-react-native';
 import React, { useState } from 'react';
-import { Alert, Image, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Image, Platform, Pressable, ScrollView, View } from 'react-native';
+import { createCompactStyleSheet } from '@/lib/compact-ui';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const Image_Url = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/`;
@@ -450,7 +451,7 @@ export default ({ user }: { user?: User }) => {
                     <View style={styles.postContent}>
                       {post.repost_user && (
                         <View style={styles.repostInfoRow}>
-                          <Repeat size={16} color="#aaa" strokeWidth={2} />
+                          <Repeat size={14} color="#aaa" strokeWidth={2} />
                           <Text style={styles.repostInfo}>Reposted by </Text>
                           <Pressable onPress={() => router.push({ pathname: `/user`, params: { userId: post.repost_user_id } })}>
                             <Text style={styles.repostInfo}>{post.repost_user.username}</Text>
@@ -578,7 +579,7 @@ export default ({ user }: { user?: User }) => {
                       <View style={[styles.actionsRow, Platform.OS === 'web' && styles.webActionsRow]}>
                         <View style={styles.likeGroup}>
                           <Pressable onPress={() => toggleLike(originalPost)} style={styles.actionIcon}>
-                            <Heart size={20} color={isLiked ? 'red' : 'grey'} fill={isLiked ? 'red' : 'transparent'} />
+                            <Heart size={18} color={isLiked ? 'red' : 'grey'} fill={isLiked ? 'red' : 'transparent'} />
                           </Pressable>
                           {(post.likes?.length ?? 0) > 0 && (
                             <Text style={styles.likeCount}>{post.likes!.length}</Text>
@@ -595,7 +596,7 @@ export default ({ user }: { user?: User }) => {
                               })
                             }
                           >
-                            <MessageCircle size={20} color="#b0b0b0" />
+                            <MessageCircle size={18} color="#b0b0b0" />
                           </Pressable>
                           {commentCount > 0 && (
                             <Text style={styles.commentCount}>{commentCount}</Text>
@@ -604,7 +605,7 @@ export default ({ user }: { user?: User }) => {
 
                         <View style={styles.repostGroup}>
                           <Pressable onPress={() => toggleRepost(originalPost)} style={styles.actionIcon}>
-                            <Repeat size={20} color={isReposted ? 'cyan' : '#b0b0b0'} />
+                            <Repeat size={18} color={isReposted ? 'cyan' : '#b0b0b0'} />
                           </Pressable>
                           {repostCount > 0 && (
                             <Text style={styles.repostCount}>{repostCount}</Text>
@@ -622,7 +623,7 @@ export default ({ user }: { user?: User }) => {
                             }
                           >
                             <View style={styles.buttonContent}>
-                              <VoteIcon size={16} color="#b0b0b0" />
+                              <VoteIcon size={14} color="#b0b0b0" />
                               <Text style={styles.buttonText}>Vote</Text>
                             </View>
                           </Pressable>
@@ -637,7 +638,7 @@ export default ({ user }: { user?: User }) => {
                             }
                           >
                             <View style={styles.buttonContent}>
-                              <Swords size={16} color="#b0b0b0" />
+                              <Swords size={14} color="#b0b0b0" />
                               <Text style={styles.buttonText}>Debate</Text>
                             </View>
                           </Pressable>
@@ -652,7 +653,7 @@ export default ({ user }: { user?: User }) => {
                             }
                           >
                             <View style={styles.buttonContent}>
-                              <EyeIcon size={16} color="#b0b0b0" />
+                              <EyeIcon size={14} color="#b0b0b0" />
                               <Text style={styles.buttonText}>View</Text>
                             </View>
                           </Pressable>
@@ -671,7 +672,7 @@ export default ({ user }: { user?: User }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const styles = createCompactStyleSheet({
   container: {
     flex: 1,
     backgroundColor: '#0f0f0f',

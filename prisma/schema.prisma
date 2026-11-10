@@ -73,18 +73,20 @@ model Tag {
 
 model Debate {
   id              String   @id @default(dbgenerated("uuid_generate_v4()"))
-  root_post_id    String   @unique
+  root_post_id    String?  @unique
+  root_comment_id String?  @unique
   challenger_id   String
   opponent_id     String?
   status          String
   challenger_text String?
   created_at      DateTime @default(now())
 
-  root_post  Post            @relation("DebateRootPost", fields: [root_post_id], references: [id], onDelete: Cascade)
-  challenger User            @relation("DebateChallenger", fields: [challenger_id], references: [id], onDelete: Cascade)
-  opponent   User?           @relation("DebateOpponent", fields: [opponent_id], references: [id], onDelete: Cascade)
-  posts      Post[]          @relation("PostToDebate")
-  segments   DebateSegment[] @relation("DebateSegments")
+  root_post    Post?            @relation("DebateRootPost", fields: [root_post_id], references: [id], onDelete: Cascade)
+  root_comment Comment?         @relation("DebateRootComment", fields: [root_comment_id], references: [id], onDelete: Cascade)
+  challenger   User             @relation("DebateChallenger", fields: [challenger_id], references: [id], onDelete: Cascade)
+  opponent     User?            @relation("DebateOpponent", fields: [opponent_id], references: [id], onDelete: Cascade)
+  posts        Post[]           @relation("PostToDebate")
+  segments     DebateSegment[]  @relation("DebateSegments")
 }
 
 model DebateSegment {
@@ -161,6 +163,7 @@ model Comment {
   replyToComment     Comment?  @relation("CommentReplyTarget", fields: [reply_to_comment_id], references: [id], onDelete: SetNull)
   targetedReplies    Comment[] @relation("CommentReplyTarget")
   repostPosts        Post[]    @relation("CommentRepostPosts")
+  debate             Debate?   @relation("DebateRootComment")
 
   @@index([post_id])
   @@index([parent_comment_id])

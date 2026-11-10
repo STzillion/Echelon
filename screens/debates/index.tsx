@@ -1,5 +1,6 @@
 import { Text } from '@/components/ui/text';
-import { Platform, SafeAreaView, StyleSheet } from 'react-native';
+import { Platform, SafeAreaView } from 'react-native';
+import { createCompactStyleSheet } from '@/lib/compact-ui';
 
 
 export default () =>{
@@ -10,7 +11,7 @@ export default () =>{
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createCompactStyleSheet({
   container: { flex: 1, backgroundColor: '#0f0f0f' },
   webColumn: { width: '100%', maxWidth: 500, alignSelf: 'center' },
 });

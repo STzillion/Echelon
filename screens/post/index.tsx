@@ -15,8 +15,9 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Camera, Hash, Images, VideoIcon } from 'lucide-react-native';
 import React, { useState } from 'react';
-import { Alert, Image, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, TouchableWithoutFeedback, View, } from 'react-native';
+import { Alert, Image, Keyboard, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, View, } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { createCompactStyleSheet } from '@/lib/compact-ui';
 import Input from './input';
 
 export default () => {
@@ -356,7 +357,7 @@ export default () => {
                     {icons.map((IconComponent, idx) => (
                       <Pressable onPress={() => handleIconPress(idx)} key={idx}>
                         <View>
-                          <IconComponent size={24} color="white" strokeWidth={0.9} />
+                          <IconComponent size={22} color="white" strokeWidth={0.9} />
                         </View>
                       </Pressable>
                     ))}
@@ -383,7 +384,7 @@ export default () => {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createCompactStyleSheet({
   container: {
     flex: 1,
     backgroundColor: '#0f0f0f',
@@ -511,4 +512,3 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
 });
-

@@ -23,9 +23,9 @@ export default function TabLayout() {
              bottom: 0,
              zIndex: 1000,
              elevation: 1000,
-             width: 64,
-             minWidth: 64,
-             padding: 4,
+             width: 58,
+             minWidth: 58,
+             padding: 3.6,
              backgroundColor: '#0f0f0f',
              borderColor: '#242424',
            },
@@ -42,7 +42,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: '',
-          tabBarIcon: ({ color, focused }) => (<Home color={color} size = {28} />
+          tabBarIcon: ({ color, focused }) => (<Home color={color} size = {25.2} />
           ),
         }}
       />
@@ -50,7 +50,7 @@ export default function TabLayout() {
         name="topics"
         options={{
             title: '',
-          tabBarIcon: ({ color, focused }) => (<SearchIcon color={color} size = {28} />
+          tabBarIcon: ({ color, focused }) => (<SearchIcon color={color} size = {25.2} />
           ),
         }}
       />
@@ -58,7 +58,7 @@ export default function TabLayout() {
         name="empty"
         options={{
             title: '',
-          tabBarIcon: ({ color, focused }) => (<Plus color={color} size = {31} />
+          tabBarIcon: ({ color, focused }) => (<Plus color={color} size = {27.9} />
           ),
         }}
         listeners={{
@@ -73,7 +73,7 @@ export default function TabLayout() {
         name="debates"
         options={{
             title: '',
-          tabBarIcon: ({ color, focused }) => (<Vote color={color} size = {30} />
+          tabBarIcon: ({ color, focused }) => (<Vote color={color} size={27} />
           ),
         }}
       />
@@ -81,7 +81,7 @@ export default function TabLayout() {
         name="profile"
         options={{
             title: '',
-          tabBarIcon: ({ color, focused }) => (<User color={color} size = {28} />
+          tabBarIcon: ({ color, focused }) => (<User color={color} size = {25.2} />
           ),
         }}
       />
@@ -89,4 +89,3 @@ export default function TabLayout() {
     
   );
 }
-

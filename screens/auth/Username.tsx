@@ -1,4 +1,5 @@
-import { SafeAreaView, Text, TextInput, StyleSheet, TouchableOpacity } from 'react-native';
+import { SafeAreaView, Text, TextInput, TouchableOpacity } from 'react-native';
+import { createCompactStyleSheet } from '@/lib/compact-ui';
 import React, { useState } from 'react';
 import { Button, ButtonText } from '@/components/ui/button';
 import { useRouter } from 'expo-router';
@@ -42,7 +43,7 @@ export default function UsernameScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createCompactStyleSheet({
   container: {
     flex: 1,
     backgroundColor: '#000',

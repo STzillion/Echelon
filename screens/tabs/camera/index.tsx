@@ -1,6 +1,7 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Circle, CheckCircle } from 'lucide-react-native';
-import { View, TouchableOpacity, Image, Text, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, Image, Text } from 'react-native';
+import { createCompactStyleSheet } from '@/lib/compact-ui';
 import React from 'react';
 import { router } from 'expo-router';
 
@@ -47,7 +48,7 @@ export default function CameraScreen() {
           className="bg-white rounded-full p-2"
           onPress={confirmPhoto}
         >
-          <CheckCircle size={75} color="white" />
+          <CheckCircle size={68} color="white" />
         </TouchableOpacity>
       </View>
     );
@@ -57,14 +58,14 @@ export default function CameraScreen() {
   <CameraView style={{flex: 1}} facing={'back'} ref={cameraRef}>
     <View className="flex-1 flex-row justify-end items-end" style={styles.buttonContainer}> 
       <TouchableOpacity style={styles.button} onPress= {takePhoto}> 
-        <Circle size={75} color="white" /> 
+        <Circle size={68} color="white" />
       </TouchableOpacity> 
     </View> 
   </CameraView> );
 }
 
 
-const styles = StyleSheet.create({
+const styles = createCompactStyleSheet({
   container: {
     flex: 1,
     justifyContent: 'center',

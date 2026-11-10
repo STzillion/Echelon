@@ -35,6 +35,7 @@ import {
   KeyboardAvoidingView,
   LayoutChangeEvent,
   ListRenderItem,
+  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -47,6 +48,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { createCompactStyleSheet } from '@/lib/compact-ui';
 
 interface ExchangeItem {
   id: string;
@@ -89,10 +91,127 @@ function timeAgo(dateString: string) {
   return `${Math.floor(diffDay / 7)}w`;
 }
 
+function createCommentMediaFilename(extension: 'jpg' | 'mp4') {
+  return `${Date.now()}-comment.${extension}`;
+}
+
 type ThreadScrollRequest = {
   token: number;
+  index?: number;
   offset?: number;
 };
+
+type InlineDebateSegment = {
+  id: string;
+  debate_id: string;
+  speaker_id: string;
+  text: string | null;
+  file: string | null;
+  side: 'root' | 'challenger';
+  round_number: number;
+  created_at: string;
+  speaker?: { id: string; username: string; avatar?: string | null };
+};
+
+type InlineCommentDebate = {
+  id: string;
+  root_comment_id: string;
+  challenger_id: string;
+  opponent_id: string | null;
+  challenger?: { id: string; username: string; avatar?: string | null };
+  opponent?: { id: string; username: string; avatar?: string | null } | null;
+  segments: InlineDebateSegment[];
+};
+
+function CommentDebateSection({
+  targetComment,
+  width,
+  comments,
+  renderComment,
+}: {
+  targetComment: CommentItem;
+  width: number;
+  comments: CommentItem[];
+  renderComment: (
+    comment: CommentItem,
+    referenceComment: CommentItem,
+    isActive: boolean,
+  ) => ReactNode;
+}) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [scrollRequest, setScrollRequest] = useState<ThreadScrollRequest>();
+  const carouselWidth = Math.max(width, 1);
+  const webWindowStart = Math.max(0, activeIndex - 1);
+  const webWindowEnd = Math.min(comments.length, activeIndex + 2);
+
+  const goToPage = (index: number) => {
+    const boundedIndex = Math.max(0, Math.min(index, comments.length - 1));
+    setActiveIndex(boundedIndex);
+    setScrollRequest((current) => ({
+      token: (current?.token ?? 0) + 1,
+      offset: boundedIndex * carouselWidth,
+    }));
+  };
+
+  const handleMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const index = Math.round(event.nativeEvent.contentOffset.x / carouselWidth);
+    setActiveIndex(Math.max(0, Math.min(index, comments.length - 1)));
+  };
+
+  return (
+    <View style={styles.commentDebateSection}>
+      <View style={[styles.commentDivider, styles.debateDivider]} />
+      <View style={styles.commentCarouselViewport}>
+        <CommentThreadScroller
+          width={carouselWidth}
+          items={comments}
+          slideCount={comments.length}
+          request={scrollRequest}
+          onLayout={() => {}}
+          renderItem={({ item, index }) => renderComment(item, targetComment, activeIndex === index)}
+          onMomentumScrollEnd={handleMomentumScrollEnd}
+        >
+          {webWindowStart > 0 ? <View style={{ width: webWindowStart * carouselWidth }} /> : null}
+          {comments.slice(webWindowStart, webWindowEnd).map((comment, index) => (
+            <Fragment key={comment.id}>
+              {renderComment(comment, targetComment, activeIndex === webWindowStart + index)}
+            </Fragment>
+          ))}
+        </CommentThreadScroller>
+        {Platform.OS === 'web' && comments.length > 1 ? (
+          <View pointerEvents="box-none" style={styles.webCarouselArrows}>
+            <Pressable
+              onPress={() => goToPage(activeIndex - 1)}
+              disabled={activeIndex <= 0}
+              accessibilityRole="button"
+              accessibilityLabel="Previous debate comment"
+              style={[styles.webCarouselArrow, styles.webCarouselArrowLeft, activeIndex <= 0 && styles.webCarouselArrowDisabled]}
+            >
+              <ChevronLeft size={16} color="#fff" />
+            </Pressable>
+            <Pressable
+              onPress={() => goToPage(activeIndex + 1)}
+              disabled={activeIndex >= comments.length - 1}
+              accessibilityRole="button"
+              accessibilityLabel="Next debate comment"
+              style={[styles.webCarouselArrow, styles.webCarouselArrowRight, activeIndex >= comments.length - 1 && styles.webCarouselArrowDisabled]}
+            >
+              <ChevronRight size={16} color="#fff" />
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+      <View style={styles.threadPagination}>
+        {comments.map((comment, index) => (
+          <View
+            key={comment.id}
+            style={[styles.threadDot, index === activeIndex && styles.threadDotActive]}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
 
 function CommentThreadScroller({
   width,
@@ -102,6 +221,7 @@ function CommentThreadScroller({
   onLayout,
   renderItem,
   onMomentumScrollEnd,
+  debugThreadRootId,
   children,
 }: {
   width: number;
@@ -111,10 +231,13 @@ function CommentThreadScroller({
   onLayout: (event: LayoutChangeEvent) => void;
   renderItem: ListRenderItem<CommentItem>;
   onMomentumScrollEnd: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  debugThreadRootId?: string;
   children: ReactNode;
 }) {
   const [translateX] = useState(() => new Animated.Value(0));
   const listRef = useRef<FlatList<CommentItem>>(null);
+  const debugScrollRequestToken = useRef<number | undefined>(undefined);
+  const debugScrollEventCount = useRef(0);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || request?.offset === undefined || !width) return;
@@ -128,8 +251,24 @@ function CommentThreadScroller({
 
   useEffect(() => {
     if (Platform.OS === 'web' || request?.offset === undefined || !width) return;
-    listRef.current?.scrollToOffset({ offset: request.offset, animated: true });
-  }, [request?.token, request?.offset, width]);
+    const offset = request.offset;
+    const frame = requestAnimationFrame(() => {
+      if (__DEV__) {
+        console.log('[thread-carousel-debug] request effect scroll', {
+          threadRootId: debugThreadRootId,
+          index: request.index,
+          offset,
+          width,
+          hasListRef: Boolean(listRef.current),
+        });
+      }
+      listRef.current?.scrollToOffset({ offset, animated: true });
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [debugThreadRootId, request?.token, request?.offset, request?.index, width]);
 
   if (Platform.OS === 'web') {
     return (
@@ -140,6 +279,26 @@ function CommentThreadScroller({
       </View>
     );
   }
+
+  const handleNativeScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (__DEV__ && request?.token !== undefined) {
+      if (debugScrollRequestToken.current !== request.token) {
+        debugScrollRequestToken.current = request.token;
+        debugScrollEventCount.current = 0;
+      }
+      if (debugScrollEventCount.current < 6) {
+        debugScrollEventCount.current += 1;
+        console.log('[thread-carousel-debug] native scroll offset', {
+          threadRootId: debugThreadRootId,
+          requestIndex: request.index,
+          requestedOffset: request.offset,
+          actualOffset: event.nativeEvent.contentOffset.x,
+          width,
+          sample: debugScrollEventCount.current,
+        });
+      }
+    }
+  };
 
   return (
     <FlatList
@@ -159,6 +318,8 @@ function CommentThreadScroller({
       windowSize={5}
       getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
       onLayout={onLayout}
+      onScroll={handleNativeScroll}
+      scrollEventThrottle={100}
       onMomentumScrollEnd={onMomentumScrollEnd}
     />
   );
@@ -177,6 +338,9 @@ export default function MainDebateScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [rootPost, setRootPost] = useState<Post | null>(null);
   const [debate, setDebate] = useState<any | null>(null);
+  const [debateTargetComment, setDebateTargetComment] = useState<CommentItem | null>(null);
+  const [commentDebates, setCommentDebates] = useState<Record<string, InlineCommentDebate>>({});
+  const [collapsedCommentDebates, setCollapsedCommentDebates] = useState<Record<string, boolean>>({});
   const [exchanges, setExchanges] = useState<ExchangeItem[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [hideExchangesBanner, setHideExchangesBanner] = useState(false);
@@ -195,8 +359,67 @@ export default function MainDebateScreen() {
     loadMoreThreadReplies,
     loadCommentPath,
     addComment,
+    updateComment,
     refetch: refetchComments,
   } = useComments(rootPost?.id);
+  const loadedCommentIdsKey = (comments ?? []).map((comment) => comment.id).join(',');
+
+  useEffect(() => {
+    if (!loadedCommentIdsKey) return;
+
+    const loadedCommentIds = loadedCommentIdsKey.split(',');
+    let cancelled = false;
+    const loadCommentDebates = async () => {
+      const { data: debates, error: debatesError } = await supabase
+        .from('Debate')
+        .select('*, challenger:User!challenger_id(id,username,avatar), opponent:User!opponent_id(id,username,avatar)')
+        .in('root_comment_id', loadedCommentIds);
+
+      if (debatesError) {
+        console.error('Error loading comment debates:', debatesError);
+        return;
+      }
+
+      const debateIds = (debates ?? []).map((item) => item.id);
+      let segments: InlineDebateSegment[] = [];
+      if (debateIds.length) {
+        const { data: segmentData, error: segmentsError } = await supabase
+          .from('DebateSegment')
+          .select('*, speaker:User!speaker_id(id,username,avatar)')
+          .in('debate_id', debateIds)
+          .order('round_number', { ascending: true });
+
+        if (segmentsError) {
+          console.error('Error loading comment debate responses:', segmentsError);
+          return;
+        }
+        segments = (segmentData ?? []) as unknown as InlineDebateSegment[];
+      }
+
+      if (cancelled) return;
+      const segmentsByDebate = new Map<string, InlineDebateSegment[]>();
+      segments.forEach((segment) => {
+        const existing = segmentsByDebate.get(segment.debate_id) ?? [];
+        existing.push(segment);
+        segmentsByDebate.set(segment.debate_id, existing);
+      });
+
+      const nextDebates: Record<string, InlineCommentDebate> = {};
+      (debates ?? []).forEach((item) => {
+        if (!item.root_comment_id) return;
+        nextDebates[item.root_comment_id] = {
+          ...(item as unknown as Omit<InlineCommentDebate, 'segments'>),
+          segments: segmentsByDebate.get(item.id) ?? [],
+        };
+      });
+      setCommentDebates(nextDebates);
+    };
+
+    void loadCommentDebates();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadedCommentIdsKey]);
 
   // Votes state
   const [opVotes, setOpVotes] = useState(31);
@@ -275,6 +498,37 @@ export default function MainDebateScreen() {
 
       setDebate(debateData);
 
+      let targetComment: CommentItem | null = null;
+      if (debateData?.root_comment_id) {
+        const { data: targetData, error: targetError } = await supabase
+          .from('Comment')
+          .select('*, speaker:User!speaker_id(id,username,avatar)')
+          .eq('id', debateData.root_comment_id)
+          .maybeSingle();
+
+        if (targetError) {
+          console.error('Error loading debate target comment:', targetError);
+        } else {
+          targetComment = targetData as unknown as CommentItem | null;
+        }
+      }
+      setDebateTargetComment(targetComment);
+
+      if (!postData && targetComment?.post_id) {
+        const { data: targetPost, error: targetPostError } = await supabase
+          .from('Post')
+          .select('*, user:User!user_id(*), likes:Like(*)')
+          .eq('id', targetComment.post_id)
+          .maybeSingle();
+
+        if (targetPostError) {
+          console.error('Error loading post for comment-rooted debate:', targetPostError);
+        } else if (targetPost) {
+          postData = targetPost;
+          setRootPost(targetPost as Post);
+        }
+      }
+
       let debateSegments: any[] = [];
       if (debateData?.id) {
         const { data: segmentData, error: segmentError } = await supabase
@@ -330,7 +584,7 @@ export default function MainDebateScreen() {
       const items: ExchangeItem[] = [];
 
       // Exchange 0: Root opinion
-      if (postData) {
+      if (postData && !debateData?.root_comment_id) {
         items.push({
           id: postData.id,
           speakerId: postData.user_id,
@@ -431,10 +685,12 @@ export default function MainDebateScreen() {
     void Promise.resolve().then(() => loadDebateData());
   }, [postId, debateId]);
 
-  const opUser: User = rootPost?.user || {
-    id: rootPost?.user_id || '',
-    username: 'Original Poster',
-  };
+  const opUser: User = (debate?.root_comment_id
+    ? debate?.opponent || debateTargetComment?.speaker
+    : rootPost?.user) || {
+      id: debate?.opponent_id || rootPost?.user_id || '',
+      username: 'Original Poster',
+    };
 
   const challengerUser: User = debate?.challenger || {
     id: debate?.challenger_id || '',
@@ -474,7 +730,8 @@ export default function MainDebateScreen() {
     const currentIndex = activeId ? activeIndex : 0;
     const nextIndex = Math.max(0, Math.min(currentIndex + direction, slideCount - 1));
     if (nextIndex === currentIndex) return;
-    requestThreadScroll(threadRootId, nextIndex * threadSlideWidth);
+    handleThreadCarouselPageChange(threadRootId, threadComments, nextIndex);
+    requestThreadScroll(threadRootId, nextIndex);
     Haptics.selectionAsync();
   };
 
@@ -722,15 +979,22 @@ export default function MainDebateScreen() {
     }
   };
 
-  const handleCommentDebatePress = () => {
-    Alert.alert('Debate this comment', 'Starting a debate from a comment is coming soon.');
+  const handleCommentDebatePress = (commentId: string) => {
+    setCollapsedCommentDebates((current) => ({
+      ...current,
+      [commentId]: !current[commentId],
+    }));
   };
 
   const [newCommentText, setNewCommentText] = useState('');
   const [newCommentPhoto, setNewCommentPhoto] = useState('');
   const [newCommentVideo, setNewCommentVideo] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const [showCommentTypeSelection, setShowCommentTypeSelection] = useState(false);
+  const [pendingReplyTarget, setPendingReplyTarget] = useState<{ threadRootId: string; commentId: string } | null>(null);
+  const [replyMode, setReplyMode] = useState<'comment' | 'debate'>('comment');
   const [replyingTo, setReplyingTo] = useState<{ threadRootId: string; commentId: string } | null>(null);
+  const [replyingToDebate, setReplyingToDebate] = useState<{ rootCommentId: string; segmentId: string } | null>(null);
   const [activeThreadCommentIds, setActiveThreadCommentIds] = useState<Record<string, string>>({});
   const [threadScrollRequests, setThreadScrollRequests] = useState<Record<string, ThreadScrollRequest>>({});
   const [threadCarouselWidth, setThreadCarouselWidth] = useState(screenWidth);
@@ -756,17 +1020,31 @@ export default function MainDebateScreen() {
     return (comments ?? []).filter((comment) => threadIds.has(comment.id));
   }, [comments]);
 
-  const requestThreadScroll = useCallback((threadRootId: string, offset: number) => {
+  const requestThreadScroll = useCallback((threadRootId: string, index: number) => {
     const threadComments = getThreadComments(threadRootId);
     if (!threadComments.length) return;
+    const boundedIndex = Math.max(0, Math.min(index, threadComments.length - 1));
+    const offset = boundedIndex * threadSlideWidth;
+    if (__DEV__) {
+      console.log('[thread-carousel-debug] request scroll', {
+        threadRootId,
+        index: boundedIndex,
+        offset,
+        width: threadSlideWidth,
+        threadCommentIds: threadComments.map((comment) => comment.id),
+      });
+    }
     setThreadScrollRequests((requests) => ({
       ...requests,
-      [threadRootId]: { offset, token: (requests[threadRootId]?.token ?? 0) + 1 },
+      [threadRootId]: {
+        index: boundedIndex,
+        offset,
+        token: (requests[threadRootId]?.token ?? 0) + 1,
+      },
     }));
-    const targetIndex = Math.max(0, Math.min(Math.round(offset / threadSlideWidth), threadComments.length - 1));
     setActiveThreadCommentIds((ids) => ({
       ...ids,
-      [threadRootId]: threadComments[targetIndex]?.id ?? threadRootId,
+      [threadRootId]: threadComments[boundedIndex]?.id ?? threadRootId,
     }));
   }, [getThreadComments, threadSlideWidth]);
   //
@@ -777,21 +1055,31 @@ export default function MainDebateScreen() {
       if (targetIndex < 0) return;
 
       delete pendingThreadTargets.current[threadRootId];
-      requestThreadScroll(threadRootId, targetIndex * threadSlideWidth);
+      requestThreadScroll(threadRootId, targetIndex);
       Haptics.selectionAsync();
     });
   }, [comments, getThreadComments, requestThreadScroll, threadSlideWidth]);
 
   const selectThreadReplyTarget = (threadRootId: string, targetCommentId: string) => {
-    setReplyingTo({ threadRootId, commentId: targetCommentId });
-    newCommentInputRef.current?.focus();
+    setPendingReplyTarget({ threadRootId, commentId: targetCommentId });
+    setShowCommentTypeSelection(true);
     Haptics.selectionAsync();
   };
 
   const navigateToThreadComment = async (threadRootId: string, targetCommentId: string) => {
-    const targetIndex = getThreadComments(threadRootId).findIndex((comment) => comment.id === targetCommentId);
+    const threadComments = getThreadComments(threadRootId);
+    const targetIndex = threadComments.findIndex((comment) => comment.id === targetCommentId);
+    if (__DEV__) {
+      console.log('[thread-carousel-debug] reference pressed', {
+        threadRootId,
+        targetCommentId,
+        targetIndex,
+        width: threadSlideWidth,
+        threadCommentIds: threadComments.map((comment) => comment.id),
+      });
+    }
     if (targetIndex >= 0) {
-      requestThreadScroll(threadRootId, targetIndex * threadSlideWidth);
+      requestThreadScroll(threadRootId, targetIndex);
       Haptics.selectionAsync();
       return;
     }
@@ -806,10 +1094,19 @@ export default function MainDebateScreen() {
     }
   };
 
-  const renderThreadCommentCard = (comment: CommentItem, threadRootId: string, isActive: boolean) => {
+  const renderThreadCommentCard = (
+    comment: CommentItem,
+    threadRootId: string,
+    isActive: boolean,
+    onDebateReply?: (() => void) | null,
+    referenceComment?: CommentItem,
+  ) => {
+    const isDebateComment = Boolean(referenceComment);
     const isCommentLiked = comment.likes?.some((like) => like.user_id === currentUser?.id);
     const isCommentReposted = comment.reposts?.some((repost: any) => repost.user_id === currentUser?.id);
-    const replyTargetId = comment.reply_to_comment_id ?? comment.parent_comment_id;
+    const replyTargetId = onDebateReply === undefined && !referenceComment
+      ? comment.reply_to_comment_id ?? comment.parent_comment_id
+      : null;
     const replyTarget = replyTargetId
       ? comments?.find((item) => item.id === replyTargetId)
       : null;
@@ -836,7 +1133,24 @@ export default function MainDebateScreen() {
             </View>
           </View>
 
-          {replyTargetId ? (
+          {referenceComment ? (
+            <Pressable
+              style={styles.commentReplyContext}
+              onPress={() => void navigateToThreadComment(threadRootId, referenceComment.id)}
+              accessibilityRole="button"
+              accessibilityLabel={`Go to comment by ${referenceComment.speaker?.username || 'user'}`}
+            >
+              <Text style={styles.commentReplyAttribution}>
+                {`Debating @${referenceComment.speaker?.username || 'user'}`}
+              </Text>
+              <Text
+                style={[styles.commentReplyExcerpt, Platform.OS === 'web' && styles.webCommentReplyExcerpt]}
+                numberOfLines={2}
+              >
+                {referenceComment.text || (referenceComment.file?.endsWith('.mp4') ? 'Video' : referenceComment.file ? 'Photo' : 'View comment')}
+              </Text>
+            </Pressable>
+          ) : replyTargetId ? (
             <Pressable
               style={styles.commentReplyContext}
               onPress={() => void navigateToThreadComment(threadRootId, replyTargetId)}
@@ -865,7 +1179,7 @@ export default function MainDebateScreen() {
           </Text>
           {isActive && comment.file ? (
             comment.file.endsWith('.mp4') ? (
-              <View style={styles.threadMediaContainer}>
+              <View style={styles.commentMedia}>
                 <PostVideo
                   uri={`${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${comment.speaker_id}/${comment.file}`}
                   isVisible={isActive}
@@ -874,7 +1188,7 @@ export default function MainDebateScreen() {
             ) : (
               <Image
                 source={{ uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${comment.speaker_id}/${comment.file}` }}
-                style={styles.threadMediaImage}
+                style={styles.commentMedia}
                 resizeMode="contain"
               />
             )
@@ -882,32 +1196,47 @@ export default function MainDebateScreen() {
 
           <View style={styles.threadCardFooter}>
             <View style={styles.threadCardActions}>
-              <Pressable
-                onPress={() => (isCommentLiked ? removeCommentLike(comment) : addCommentLike(comment))}
-                style={styles.postAction}
-              >
-                <Heart size={16} color={isCommentLiked ? '#ef4444' : '#b0b0b0'} fill={isCommentLiked ? '#ef4444' : 'transparent'} />
-                {(comment.likes?.length ?? 0) > 0 ? <Text style={styles.postActionText}>{comment.likes!.length}</Text> : null}
-              </Pressable>
-              <Pressable
-                onPress={() => (isCommentReposted ? removeCommentRepost(comment) : addCommentRepost(comment))}
-                style={styles.postAction}
-              >
-                <Repeat size={16} color={isCommentReposted ? '#22d3ee' : '#b0b0b0'} />
-                {(comment.reposts?.length ?? 0) > 0 ? <Text style={styles.postActionText}>{comment.reposts!.length}</Text> : null}
-              </Pressable>
-              <Pressable
-                onPress={() => selectThreadReplyTarget(threadRootId, comment.id)}
-                style={styles.postAction}
-              >
-                <MessageCircle size={16} color="#b0b0b0" />
-                <Text style={styles.postActionText}>Reply</Text>
-              </Pressable>
-              {comment.is_debatable ? (
-                <Pressable onPress={handleCommentDebatePress} style={styles.postAction}>
-                  <Swords size={16} color="#b0b0b0" />
-                </Pressable>
-              ) : null}
+                {isDebateComment ? (
+                  <Pressable
+                    onPress={onDebateReply ?? undefined}
+                    disabled={!onDebateReply}
+                    style={[styles.postAction, !onDebateReply && styles.debateReplyDisabled]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Debate"
+                  >
+                    <Swords size={14} color="#fbbf24" />
+                    <Text style={styles.postActionText}>Debate</Text>
+                  </Pressable>
+                ) : (
+                  <>
+                    <Pressable
+                      onPress={() => (isCommentLiked ? removeCommentLike(comment) : addCommentLike(comment))}
+                      style={styles.postAction}
+                    >
+                      <Heart size={14} color={isCommentLiked ? '#ef4444' : '#b0b0b0'} fill={isCommentLiked ? '#ef4444' : 'transparent'} />
+                      {(comment.likes?.length ?? 0) > 0 ? <Text style={styles.postActionText}>{comment.likes!.length}</Text> : null}
+                    </Pressable>
+                    <Pressable
+                      onPress={() => (isCommentReposted ? removeCommentRepost(comment) : addCommentRepost(comment))}
+                      style={styles.postAction}
+                    >
+                      <Repeat size={14} color={isCommentReposted ? '#22d3ee' : '#b0b0b0'} />
+                      {(comment.reposts?.length ?? 0) > 0 ? <Text style={styles.postActionText}>{comment.reposts!.length}</Text> : null}
+                    </Pressable>
+                    <Pressable
+                      onPress={() => selectThreadReplyTarget(threadRootId, comment.id)}
+                      style={styles.postAction}
+                    >
+                      <MessageCircle size={14} color="#b0b0b0" />
+                      <Text style={styles.postActionText}>Reply</Text>
+                    </Pressable>
+                    {comment.is_debatable ? (
+                      <Pressable onPress={() => handleCommentDebatePress(comment.id)} style={styles.postAction}>
+                        <Swords size={14} color="#b0b0b0" />
+                      </Pressable>
+                    ) : null}
+                  </>
+                )}
             </View>
           </View>
         </View>
@@ -939,21 +1268,187 @@ export default function MainDebateScreen() {
     }
   };
 
+  const createCommentDebate = async (mediaFilename: string | null) => {
+    const targetComment = replyingTo
+      ? comments?.find((comment) => comment.id === replyingTo.commentId)
+      : null;
+
+    if (!rootPost?.id || !currentUser?.id || !replyingTo || !targetComment) {
+      Alert.alert('Cannot start debate', 'The comment being debated could not be found.');
+      return;
+    }
+
+    if (targetComment.speaker_id === currentUser.id) {
+      Alert.alert('Invalid action', 'You cannot debate your own comment.');
+      return;
+    }
+
+    const debateId = Crypto.randomUUID();
+    const { error: debateError } = await supabase.from('Debate').insert({
+      id: debateId,
+      root_post_id: null,
+      root_comment_id: targetComment.id,
+      challenger_id: currentUser.id,
+      opponent_id: targetComment.speaker_id,
+      challenger_text: newCommentText.trim(),
+      status: 'open',
+    });
+
+    if (debateError) {
+      console.error('Error creating comment-rooted debate:', debateError);
+      Alert.alert('Error', 'Could not create a debate for this comment.');
+      return;
+    }
+
+    const { data: segmentData, error: segmentError } = await supabase.from('DebateSegment').insert({
+      id: Crypto.randomUUID(),
+      debate_id: debateId,
+      post_id: rootPost.id,
+      speaker_id: currentUser.id,
+      text: newCommentText.trim(),
+      file: mediaFilename,
+      side: 'challenger',
+      round_number: 2,
+    }).select('*, speaker:User!speaker_id(id,username,avatar)').single();
+
+    if (segmentError) {
+      console.error('Error creating initial comment debate segment:', segmentError);
+      const { error: cleanupError } = await supabase.from('Debate').delete().eq('id', debateId);
+      if (cleanupError) {
+        console.error('Error cleaning up incomplete comment debate:', cleanupError);
+      }
+      Alert.alert('Error', 'The debate could not be started. Please try again.');
+      return;
+    }
+
+    const { error: commentUpdateError } = await supabase
+      .from('Comment')
+      .update({ is_debatable: true })
+      .eq('id', targetComment.id);
+    if (commentUpdateError) {
+      console.error('Error marking debate target comment as debatable:', commentUpdateError);
+    } else {
+      updateComment(targetComment.id, (comment) => ({ ...comment, is_debatable: true }));
+    }
+
+    setCommentDebates((current) => ({
+      ...current,
+      [targetComment.id]: {
+        id: debateId,
+        root_comment_id: targetComment.id,
+        challenger_id: currentUser.id,
+        opponent_id: targetComment.speaker_id,
+        challenger: {
+          id: currentUser.id,
+          username: currentUser.username,
+          avatar: currentUser.avatar,
+        },
+        opponent: targetComment.speaker,
+        segments: [segmentData as unknown as InlineDebateSegment],
+      },
+    }));
+    setCollapsedCommentDebates((current) => ({ ...current, [targetComment.id]: false }));
+    setNewCommentText('');
+    setNewCommentPhoto('');
+    setNewCommentVideo('');
+    setReplyingTo(null);
+    setReplyMode('comment');
+  };
+
+  const submitCommentDebateResponse = async (
+    commentDebate: InlineCommentDebate,
+    text: string,
+    mediaFilename: string | null,
+  ) => {
+    if (!rootPost?.id || !currentUser?.id) {
+      throw new Error('Sign in to respond to this debate.');
+    }
+
+    const lastSegment = commentDebate.segments[commentDebate.segments.length - 1];
+    const nextSpeakerId = !lastSegment
+      ? commentDebate.challenger_id
+      : lastSegment.side === 'challenger'
+        ? commentDebate.opponent_id
+        : commentDebate.challenger_id;
+    if (currentUser.id !== nextSpeakerId) {
+      throw new Error('It is not your turn in this debate.');
+    }
+
+    const side = currentUser.id === commentDebate.challenger_id ? 'challenger' : 'root';
+    const { data: segment, error } = await supabase.from('DebateSegment').insert({
+      id: Crypto.randomUUID(),
+      debate_id: commentDebate.id,
+      post_id: rootPost.id,
+      speaker_id: currentUser.id,
+      text,
+      file: mediaFilename,
+      side,
+      round_number: commentDebate.segments.length + 2,
+    }).select('*, speaker:User!speaker_id(id,username,avatar)').single();
+
+    if (error) {
+      console.error('Error creating comment debate response:', error);
+      throw new Error('Could not post your debate response.');
+    }
+
+    setCommentDebates((current) => {
+      const existing = current[commentDebate.root_comment_id] ?? commentDebate;
+      return {
+        ...current,
+        [commentDebate.root_comment_id]: {
+          ...existing,
+          segments: [...existing.segments, segment as unknown as InlineDebateSegment],
+        },
+      };
+    });
+  };
+
   const submitNewComment = async (isDebatable: boolean) => {
     if (!rootPost?.id || !currentUser?.id) {
       Alert.alert('Sign in required', 'Please log in to comment or reply.');
       return;
     }
     if (!newCommentText.trim() && !newCommentPhoto && !newCommentVideo) return;
+    if (isDebatable && replyingTo) {
+      const targetComment = comments?.find((comment) => comment.id === replyingTo.commentId);
+      if (!targetComment) {
+        Alert.alert('Cannot start debate', 'The comment being debated could not be found.');
+        return;
+      }
+      if (targetComment.speaker_id === currentUser.id) {
+        Alert.alert('Invalid action', 'You cannot debate your own comment.');
+        return;
+      }
+    }
 
     try {
       setIsSubmittingComment(true);
       let mediaFilename: string | null = null;
 
       if (newCommentPhoto) {
-        mediaFilename = await uploadFile(currentUser.id, newCommentPhoto, 'image/jpeg', `${Date.now()}-comment.jpg`);
+        mediaFilename = await uploadFile(currentUser.id, newCommentPhoto, 'image/jpeg', createCommentMediaFilename('jpg'));
       } else if (newCommentVideo) {
-        mediaFilename = await uploadFile(currentUser.id, newCommentVideo, 'video/mp4', `${Date.now()}-comment.mp4`);
+        mediaFilename = await uploadFile(currentUser.id, newCommentVideo, 'video/mp4', createCommentMediaFilename('mp4'));
+      }
+
+      if (replyingToDebate) {
+        const commentDebate = commentDebates[replyingToDebate.rootCommentId];
+        if (!commentDebate) {
+          Alert.alert('Cannot reply', 'This debate is no longer available.');
+          return;
+        }
+        await submitCommentDebateResponse(commentDebate, newCommentText.trim(), mediaFilename);
+        setNewCommentText('');
+        setNewCommentPhoto('');
+        setNewCommentVideo('');
+        setReplyingToDebate(null);
+        setReplyMode('comment');
+        return;
+      }
+
+      if (isDebatable && replyingTo) {
+        await createCommentDebate(mediaFilename);
+        return;
       }
 
       const { data, error } = await supabase.from('Comment').insert({
@@ -977,7 +1472,11 @@ export default function MainDebateScreen() {
       setNewCommentPhoto('');
       setNewCommentVideo('');
       setReplyingTo(null);
+      setReplyMode('comment');
       addComment(data as unknown as CommentItem);
+    } catch (error) {
+      console.error('Error submitting comment:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Could not submit your comment.');
     } finally {
       setIsSubmittingComment(false);
     }
@@ -988,19 +1487,39 @@ export default function MainDebateScreen() {
 
   const handleNewCommentTypeSelection = () => {
     if (isNewCommentDisabled) return;
-    Alert.alert(
-      replyingTo ? 'Reply type' : 'Comment type',
-      replyingTo ? 'Post a reply or start a debate from this comment?' : 'Post a reply or start a debate from this post?',
-      [
-        { text: replyingTo ? 'Post reply' : 'Post comment', onPress: () => submitNewComment(false) },
-        { text: 'Start debate', onPress: () => submitNewComment(true) },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+    setShowCommentTypeSelection(true);
+  };
+
+  const chooseCommentType = (isDebatable: boolean) => {
+    setShowCommentTypeSelection(false);
+    if (pendingReplyTarget) {
+      setReplyingTo(pendingReplyTarget);
+      setReplyingToDebate(null);
+      setPendingReplyTarget(null);
+      setReplyMode(isDebatable ? 'debate' : 'comment');
+      requestAnimationFrame(() => newCommentInputRef.current?.focus());
+      return;
+    }
+
+    void submitNewComment(isDebatable);
+  };
+
+  const handleComposerSubmit = () => {
+    if (isNewCommentDisabled) return;
+    if (replyingTo || replyingToDebate) {
+      void submitNewComment(replyMode === 'debate');
+      return;
+    }
+    handleNewCommentTypeSelection();
   };
 
   const replyingToComment = replyingTo
     ? comments.find((comment) => comment.id === replyingTo.commentId)
+    : null;
+  const replyingToDebateSegment = replyingToDebate
+    ? commentDebates[replyingToDebate.rootCommentId]?.segments.find(
+        (segment) => segment.id === replyingToDebate.segmentId
+      )
     : null;
 
   const handleToggleLike = async () => {
@@ -1100,7 +1619,7 @@ export default function MainDebateScreen() {
           {/* Top Header */}
           <View style={styles.topHeader}>
             <Pressable onPress={() => router.back()} style={styles.headerBackButton} hitSlop={12}>
-              <ArrowLeft size={20} color="#fff" />
+              <ArrowLeft size={18} color="#fff" />
             </Pressable>
 
             <Text style={styles.topHeaderTitle}>Debate</Text>
@@ -1134,6 +1653,38 @@ export default function MainDebateScreen() {
             >
               {/* Carousel Section (Horizontal swipeable opinion cards) */}
               <View style={styles.carouselContainer}>
+                {debateTargetComment ? (
+                  <View style={styles.debateTargetCard}>
+                    <View style={styles.debateTargetHeading}>
+                      <Swords size={13} color="#fbbf24" />
+                      <Text style={styles.debateTargetLabel}>DEBATING THIS COMMENT</Text>
+                    </View>
+                    <Text style={styles.debateTargetAuthor}>
+                      @{debateTargetComment.speaker?.username || 'user'}
+                    </Text>
+                    {debateTargetComment.text ? (
+                      <Text style={styles.debateTargetText}>{debateTargetComment.text}</Text>
+                    ) : null}
+                    {debateTargetComment.file ? (
+                      debateTargetComment.file.endsWith('.mp4') ? (
+                        <View style={styles.debateTargetMedia}>
+                          <PostVideo
+                            uri={`${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${debateTargetComment.speaker_id}/${debateTargetComment.file}`}
+                            isVisible={activeIndex === 0}
+                          />
+                        </View>
+                      ) : (
+                        <Image
+                          source={{
+                            uri: `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${debateTargetComment.speaker_id}/${debateTargetComment.file}`,
+                          }}
+                          style={styles.debateTargetMedia}
+                          resizeMode="cover"
+                        />
+                      )
+                    ) : null}
+                  </View>
+                ) : null}
                 <ScrollView
                   ref={scrollRef}
                   horizontal
@@ -1270,7 +1821,7 @@ export default function MainDebateScreen() {
                                 onPress={() => setReplyPhoto('')}
                                 style={styles.removeMediaBtn}
                               >
-                                <X size={14} color="#fff" />
+                                <X size={13} color="#fff" />
                               </Pressable>
                             </View>
                           ) : null}
@@ -1283,7 +1834,7 @@ export default function MainDebateScreen() {
                                 onPress={() => setReplyVideo('')}
                                 style={styles.removeMediaBtn}
                               >
-                                <X size={14} color="#fff" />
+                                <X size={13} color="#fff" />
                               </Pressable>
                             </View>
                           ) : null}
@@ -1292,10 +1843,10 @@ export default function MainDebateScreen() {
                           <View style={styles.inputCardActions}>
                             <View style={styles.inputMediaButtons}>
                               <Pressable onPress={handlePickPhoto} style={styles.mediaActionBtn}>
-                                <ImageIcon size={18} color="#94a3b8" />
+                                <ImageIcon size={16} color="#94a3b8" />
                               </Pressable>
                               <Pressable onPress={handlePickVideo} style={styles.mediaActionBtn}>
-                                <VideoIcon size={18} color="#94a3b8" />
+                                <VideoIcon size={16} color="#94a3b8" />
                               </Pressable>
                             </View>
 
@@ -1312,7 +1863,7 @@ export default function MainDebateScreen() {
                               ) : (
                                 <>
                                   <Text style={styles.submitCounterBtnText}>Post Counter</Text>
-                                  <Send size={14} color="#fff" />
+                                  <Send size={13} color="#fff" />
                                 </>
                               )}
                             </Pressable>
@@ -1332,7 +1883,7 @@ export default function MainDebateScreen() {
                       accessibilityLabel="Previous debate card"
                       style={[styles.webCarouselArrow, styles.webCarouselArrowLeft, activeIndex <= 0 && styles.webCarouselArrowDisabled]}
                     >
-                      <ChevronLeft size={20} color="#fff" />
+                      <ChevronLeft size={18} color="#fff" />
                     </Pressable>
                     <Pressable
                       onPress={() => scrollToSlide(activeIndex + 1)}
@@ -1341,7 +1892,7 @@ export default function MainDebateScreen() {
                       accessibilityLabel="Next debate card"
                       style={[styles.webCarouselArrow, styles.webCarouselArrowRight, activeIndex >= totalSlides - 1 && styles.webCarouselArrowDisabled]}
                     >
-                      <ChevronRight size={20} color="#fff" />
+                      <ChevronRight size={18} color="#fff" />
                     </Pressable>
                   </View>
                 ) : null}
@@ -1369,7 +1920,7 @@ export default function MainDebateScreen() {
               <View style={styles.postActionsRow}>
                 <Pressable onPress={handleToggleLike} style={styles.postAction}>
                   <Heart
-                    size={20}
+                    size={18}
                     color={isLiked ? '#ef4444' : '#b0b0b0'}
                     fill={isLiked ? '#ef4444' : 'transparent'}
                   />
@@ -1381,13 +1932,13 @@ export default function MainDebateScreen() {
                   onPress={() => mainScrollRef.current?.scrollToEnd({ animated: true })}
                   style={styles.postAction}
                 >
-                  <MessageCircle size={20} color="#b0b0b0" />
+                  <MessageCircle size={18} color="#b0b0b0" />
                   {commentsCount > 0 ? (
                     <Text style={styles.postActionText}>{commentsCount}</Text>
                   ) : null}
                 </Pressable>
                 <Pressable onPress={handleToggleRepost} style={styles.postAction}>
-                  <Repeat size={20} color={isReposted ? '#22d3ee' : '#b0b0b0'} />
+                  <Repeat size={18} color={isReposted ? '#22d3ee' : '#b0b0b0'} />
                   {repostCount > 0 ? (
                     <Text style={styles.postActionText}>{repostCount}</Text>
                   ) : null}
@@ -1409,6 +1960,8 @@ export default function MainDebateScreen() {
                       0,
                       threadComments.findIndex((item) => item.id === activeThreadCommentId)
                     );
+                    const webWindowStart = Math.max(0, activeThreadIndex - 1);
+                    const webWindowEnd = Math.min(threadComments.length, activeThreadIndex + 2);
 
                     return (
                       <View key={comment.id} style={styles.commentThread}>
@@ -1424,6 +1977,7 @@ export default function MainDebateScreen() {
                             items={threadComments}
                             slideCount={threadComments.length}
                             request={threadScrollRequests[comment.id]}
+                            debugThreadRootId={comment.id}
                             renderItem={({ item }) => renderThreadCommentCard(
                               item,
                               comment.id,
@@ -1447,23 +2001,38 @@ export default function MainDebateScreen() {
                               }
                             }}
                             onMomentumScrollEnd={(event) => {
-                              const index = Math.round(event.nativeEvent.contentOffset.x / threadSlideWidth);
+                              const offset = event.nativeEvent.contentOffset.x;
+                              const index = Math.round(offset / threadSlideWidth);
+                              if (__DEV__) {
+                                console.log('[thread-carousel-debug] momentum scroll end', {
+                                  threadRootId: comment.id,
+                                  offset,
+                                  index,
+                                  width: threadSlideWidth,
+                                  threadCommentIds: threadComments.map((item) => item.id),
+                                });
+                              }
                               handleThreadCarouselPageChange(comment.id, threadComments, index);
                             }}
                           >
-                            {Platform.OS === 'web'
-                              ? threadComments.map((item) => (
-                                <Fragment key={item.id}>
-                                  {renderThreadCommentCard(
-                                    item,
-                                    comment.id,
-                                    activeThreadCommentId
-                                      ? activeThreadCommentId === item.id
-                                      : item.id === comment.id
-                                  )}
-                                </Fragment>
-                              ))
-                              : null}
+                            {Platform.OS === 'web' ? (
+                              <>
+                                {webWindowStart > 0 ? (
+                                  <View style={{ width: webWindowStart * threadSlideWidth }} />
+                                ) : null}
+                                {threadComments.slice(webWindowStart, webWindowEnd).map((item) => (
+                                  <Fragment key={item.id}>
+                                    {renderThreadCommentCard(
+                                      item,
+                                      comment.id,
+                                      activeThreadCommentId
+                                        ? activeThreadCommentId === item.id
+                                        : item.id === comment.id
+                                    )}
+                                  </Fragment>
+                                ))}
+                              </>
+                            ) : null}
                           </CommentThreadScroller>
                           {Platform.OS === 'web' && threadComments.length > 1 ? (
                             <View pointerEvents="box-none" style={styles.webCarouselArrows}>
@@ -1474,7 +2043,7 @@ export default function MainDebateScreen() {
                                 accessibilityLabel="Previous comment"
                                 style={[styles.webCarouselArrow, styles.webCarouselArrowLeft, activeThreadIndex <= 0 && styles.webCarouselArrowDisabled]}
                               >
-                                <ChevronLeft size={18} color="#fff" />
+                                <ChevronLeft size={16} color="#fff" />
                               </Pressable>
                               <Pressable
                                 onPress={() => stepThreadSlide(comment.id, 1, threadComments.length)}
@@ -1483,7 +2052,7 @@ export default function MainDebateScreen() {
                                 accessibilityLabel="Next comment"
                                 style={[styles.webCarouselArrow, styles.webCarouselArrowRight, activeThreadIndex >= threadComments.length - 1 && styles.webCarouselArrowDisabled]}
                               >
-                                <ChevronRight size={18} color="#fff" />
+                                <ChevronRight size={16} color="#fff" />
                               </Pressable>
                             </View>
                           ) : null}
@@ -1499,6 +2068,62 @@ export default function MainDebateScreen() {
                             />
                           ))}
                         </View>
+                        {threadComments.map((threadComment) => {
+                          const commentDebate = commentDebates[threadComment.id];
+                          if (!commentDebate || collapsedCommentDebates[threadComment.id]) return null;
+                          const debateComments: CommentItem[] = commentDebate.segments.map((segment) => ({
+                            id: segment.id,
+                            post_id: rootPost?.id ?? '',
+                            speaker_id: segment.speaker_id,
+                            text: segment.text,
+                            file: segment.file,
+                            parent_comment_id: null,
+                            reply_to_comment_id: null,
+                            is_debatable: false,
+                            created_at: segment.created_at,
+                            speaker: segment.speaker as User | undefined,
+                            likes: [],
+                            reposts: [],
+                          }));
+                          const lastDebateSegment = commentDebate.segments[commentDebate.segments.length - 1];
+                          const nextDebateSpeakerId = !lastDebateSegment
+                            ? commentDebate.challenger_id
+                            : lastDebateSegment.side === 'challenger'
+                              ? commentDebate.opponent_id
+                              : commentDebate.challenger_id;
+                          const canReplyToDebate = Boolean(
+                            currentUser?.id &&
+                            (currentUser.id === commentDebate.challenger_id ||
+                              currentUser.id === commentDebate.opponent_id) &&
+                            currentUser.id === nextDebateSpeakerId
+                          );
+
+                          return (
+                            <CommentDebateSection
+                              key={commentDebate.id}
+                              targetComment={threadComment}
+                              width={threadSlideWidth}
+                              comments={debateComments}
+                              renderComment={(debateComment, referenceComment, isActive) => renderThreadCommentCard(
+                                debateComment,
+                                comment.id,
+                                isActive,
+                                canReplyToDebate && debateComment.id === lastDebateSegment?.id
+                                  ? () => {
+                                      setReplyingTo(null);
+                                      setReplyingToDebate({
+                                        rootCommentId: threadComment.id,
+                                        segmentId: debateComment.id,
+                                      });
+                                      setReplyMode('comment');
+                                      requestAnimationFrame(() => newCommentInputRef.current?.focus());
+                                    }
+                                  : null,
+                                referenceComment
+                              )}
+                            />
+                          );
+                        })}
                         <View style={styles.commentDivider} />
                       </View>
                     );
@@ -1523,18 +2148,24 @@ export default function MainDebateScreen() {
                   </View>
                 )}
                 <View style={styles.newCommentContent}>
-                  {replyingTo ? (
+                  {replyingTo || replyingToDebate ? (
                     <View style={styles.newCommentReplyingRow}>
                       <Text style={styles.newCommentReplyingText}>
-                        Replying to @{replyingToComment?.speaker?.username || 'user'}
+                        {replyingToDebate
+                          ? `Responding in debate with @${replyingToDebateSegment?.speaker?.username || 'user'}`
+                          : `Replying to @${replyingToComment?.speaker?.username || 'user'}`}
                       </Text>
                       <Pressable
-                        onPress={() => setReplyingTo(null)}
+                        onPress={() => {
+                          setReplyingTo(null);
+                          setReplyingToDebate(null);
+                          setReplyMode('comment');
+                        }}
                         hitSlop={8}
                         accessibilityRole="button"
                         accessibilityLabel="Cancel reply"
                       >
-                        <X size={15} color="#71767b" />
+                        <X size={14} color="#71767b" />
                       </Pressable>
                     </View>
                   ) : null}
@@ -1544,7 +2175,15 @@ export default function MainDebateScreen() {
                   <TextInput
                     ref={newCommentInputRef}
                     style={styles.newCommentInput}
-                    placeholder={replyingTo ? 'Write a reply...' : 'Write a comment...'}
+                    placeholder={
+                      replyingToDebate
+                        ? 'Write your debate response...'
+                        : replyingTo
+                        ? replyMode === 'debate'
+                          ? 'Write your opening argument...'
+                          : 'Write a reply...'
+                        : 'Write a comment...'
+                    }
                     placeholderTextColor="#71767b"
                     multiline
                     value={newCommentText}
@@ -1552,24 +2191,77 @@ export default function MainDebateScreen() {
                   />
                   <View style={styles.newCommentFooter}>
                     <Pressable onPress={pickNewCommentPhoto} accessibilityRole="button" accessibilityLabel="Add photo">
-                      <ImageIcon size={18} color="#b0b0b0" />
+                      <ImageIcon size={16} color="#b0b0b0" />
                     </Pressable>
                     <Pressable onPress={pickNewCommentVideo} accessibilityRole="button" accessibilityLabel="Add video">
-                      <VideoIcon size={18} color="#b0b0b0" />
+                      <VideoIcon size={16} color="#b0b0b0" />
                     </Pressable>
                     <Pressable
-                      onPress={handleNewCommentTypeSelection}
+                      onPress={handleComposerSubmit}
                       disabled={isNewCommentDisabled}
                       style={[styles.newCommentSubmit, { opacity: isNewCommentDisabled ? 0.5 : 1 }]}
                     >
                       <Text style={styles.newCommentSubmitText}>
-                        {isSubmittingComment ? 'Posting...' : replyingTo ? 'Reply' : 'Post'}
+                        {isSubmittingComment
+                          ? replyingToDebate
+                            ? 'Responding...'
+                            : replyMode === 'debate' ? 'Starting...' : 'Posting...'
+                          : replyingToDebate
+                            ? 'Respond'
+                            : replyingTo
+                            ? replyMode === 'debate' ? 'Start debate' : 'Reply'
+                            : 'Post'}
                       </Text>
                     </Pressable>
                   </View>
                 </View>
               </View>
             </View>
+            <Modal
+              transparent
+              animationType="fade"
+              visible={showCommentTypeSelection}
+              onRequestClose={() => setShowCommentTypeSelection(false)}
+              statusBarTranslucent
+            >
+              <View style={styles.commentTypeModalBackdrop}>
+                <View style={styles.commentTypeModal}>
+                  <Text style={styles.commentTypeTitle}>
+                    {pendingReplyTarget || replyingTo ? 'Reply type' : 'Comment type'}
+                  </Text>
+                  <Text style={styles.commentTypeDescription}>
+                    {pendingReplyTarget || replyingTo
+                      ? 'Post a reply or start a debate from this comment?'
+                      : 'Post a comment or start a debate from this post?'}
+                  </Text>
+                  <Pressable
+                    onPress={() => chooseCommentType(false)}
+                    style={styles.commentTypeOption}
+                    accessibilityRole="button"
+                  >
+                    <MessageCircle size={16} color="#22d3ee" />
+                    <Text style={styles.commentTypeOptionText}>
+                      {pendingReplyTarget || replyingTo ? 'Post reply' : 'Post comment'}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => chooseCommentType(true)}
+                    style={styles.commentTypeOption}
+                    accessibilityRole="button"
+                  >
+                    <Swords size={16} color="#fbbf24" />
+                    <Text style={styles.commentTypeOptionText}>Start debate</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setShowCommentTypeSelection(false)}
+                    style={styles.commentTypeCancel}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.commentTypeCancelText}>Cancel</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </Modal>
             </>
           )}
         </KeyboardAvoidingView>
@@ -1578,7 +2270,7 @@ export default function MainDebateScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createCompactStyleSheet({
   screen: {
     flex: 1,
     backgroundColor: '#0f0f0f',
@@ -1630,6 +2322,45 @@ const styles = StyleSheet.create({
     marginTop: 56,
     alignItems: 'center',
     position: 'relative',
+  },
+  debateTargetCard: {
+    width: '90%',
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(251, 191, 36, 0.45)',
+    backgroundColor: 'rgba(251, 191, 36, 0.08)',
+  },
+  debateTargetHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  debateTargetLabel: {
+    color: '#fbbf24',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  debateTargetAuthor: {
+    color: '#d4d4d4',
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  debateTargetText: {
+    color: '#fff',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  debateTargetMedia: {
+    width: '100%',
+    height: 180,
+    marginTop: 8,
+    borderRadius: 8,
+    overflow: 'hidden',
   },
   horizontalScrollView: {
     width: '100%',
@@ -1915,6 +2646,14 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     position: 'relative',
   },
+  commentDebateSection: {
+    marginTop: 6,
+    marginBottom: 8,
+    alignItems: 'center',
+  },
+  debateDivider: {
+    marginBottom: 12,
+  },
   commentCarouselViewport: {
     width: '100%',
     position: 'relative',
@@ -1989,6 +2728,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 14,
   },
+  debateReplyDisabled: {
+    opacity: 0.4,
+  },
   threadPagination: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -2026,6 +2768,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 4,
   },
+  commentMedia: {
+    width: '100%',
+    height: 42,
+    borderRadius: 6,
+    overflow: 'hidden',
+    marginBottom: 0,
+  },
   noCommentsText: {
     color: '#71767b',
     fontSize: 14,
@@ -2038,6 +2787,59 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 8,
     paddingBottom: 10,
+  },
+  commentTypeModalBackdrop: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
+  },
+  commentTypeModal: {
+    width: '100%',
+    maxWidth: 360,
+    padding: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#333',
+    backgroundColor: '#181818',
+  },
+  commentTypeTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  commentTypeDescription: {
+    color: '#a1a1aa',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 6,
+    marginBottom: 16,
+  },
+  commentTypeOption: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#222',
+    marginTop: 8,
+  },
+  commentTypeOptionText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  commentTypeCancel: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginTop: 4,
+  },
+  commentTypeCancelText: {
+    color: '#a1a1aa',
+    fontSize: 14,
+    fontWeight: '600',
   },
   newCommentComposer: {
     flexDirection: 'row',
