@@ -48,7 +48,7 @@ export default function CameraScreen() {
           className="bg-white rounded-full p-2"
           onPress={confirmPhoto}
         >
-          <CheckCircle size={68} color="white" />
+          <CheckCircle size={72} color="white" />
         </TouchableOpacity>
       </View>
     );
@@ -58,7 +58,7 @@ export default function CameraScreen() {
   <CameraView style={{flex: 1}} facing={'back'} ref={cameraRef}>
     <View className="flex-1 flex-row justify-end items-end" style={styles.buttonContainer}> 
       <TouchableOpacity style={styles.button} onPress= {takePhoto}> 
-        <Circle size={68} color="white" />
+        <Circle size={72} color="white" />
       </TouchableOpacity> 
     </View> 
   </CameraView> );

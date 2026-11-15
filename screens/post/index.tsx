@@ -357,7 +357,7 @@ export default () => {
                     {icons.map((IconComponent, idx) => (
                       <Pressable onPress={() => handleIconPress(idx)} key={idx}>
                         <View>
-                          <IconComponent size={22} color="white" strokeWidth={0.9} />
+                          <IconComponent size={23} color="white" strokeWidth={0.9} />
                         </View>
                       </Pressable>
                     ))}

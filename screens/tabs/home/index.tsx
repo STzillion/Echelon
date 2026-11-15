@@ -554,7 +554,7 @@ const RemoveRepost = async (orig: Post) => {
                 
                 {post.repost_user && (
                   <View style={styles.repostInfoRow}>
-                    <Repeat size={14} color="#aaa" strokeWidth={2} />
+                    <Repeat size={15} color="#aaa" strokeWidth={2} />
                     <Text style={styles.repostInfo}>
                       Reposted by 
                     </Text>
@@ -765,7 +765,7 @@ const RemoveRepost = async (orig: Post) => {
                         isLiked ? RemoveLike(originalPostId) : AddLike(originalPostId);
                       }} 
                       style={styles.actionIcon}>
-                      <Heart size={18}  color={likeActive ? 'red' : 'grey'} fill={likeActive ? 'red' : 'transparent'} />
+                      <Heart size={19}  color={likeActive ? 'red' : 'grey'} fill={likeActive ? 'red' : 'transparent'} />
                     </Pressable>
                     {likeTotal > 0 && (
                       <Text style={styles.likeCount}>{likeTotal}</Text>
@@ -781,7 +781,7 @@ const RemoveRepost = async (orig: Post) => {
                         })
                       }
                     >
-                      <MessageCircle size={18} color="#b0b0b0" />
+                      <MessageCircle size={19} color="#b0b0b0" />
                     </Pressable>
                     {replyTotal > 0 && (
                       <Text style={styles.commentCount}>{replyTotal}</Text>
@@ -801,7 +801,7 @@ const RemoveRepost = async (orig: Post) => {
                     style={styles.actionIcon}
                   >
                     <Repeat
-                      size={18}
+                      size={19}
                       color={repostActive ? 'cyan' : '#b0b0b0'}
                     />
                   </Pressable>
@@ -823,7 +823,7 @@ const RemoveRepost = async (orig: Post) => {
                       }
                     >
                       <View style={styles.buttonContent}>
-                        <VoteIcon size={14} color="#b0b0b0" />
+                        <VoteIcon size={15} color="#b0b0b0" />
                         <Text style={styles.buttonText}>Vote</Text>
                       </View>
                     </Pressable>
@@ -838,7 +838,7 @@ const RemoveRepost = async (orig: Post) => {
                       }
                     >
                       <View style={styles.buttonContent}>
-                        <Swords size={14} color="#b0b0b0" />
+                        <Swords size={15} color="#b0b0b0" />
                         <Text style={styles.buttonText}>Debate</Text>
                       </View>
                     </Pressable>
@@ -853,7 +853,7 @@ const RemoveRepost = async (orig: Post) => {
                       }
                     >
                       <View style={styles.buttonContent}>
-                        <EyeIcon size={14} color="#b0b0b0" />
+                        <EyeIcon size={15} color="#b0b0b0" />
                         <Text style={styles.buttonText}>View</Text>
                       </View>
                     </Pressable>

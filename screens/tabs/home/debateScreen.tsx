@@ -224,7 +224,7 @@ export default function DebatePage() {
                   onPress={() => router.back()}
                   hitSlop={8}
                 >
-                  <ArrowLeft size={14} color="#e5e7eb" />
+                  <ArrowLeft size={15} color="#e5e7eb" />
                   <Text style={styles.backButtonText}>Back</Text>
                 </Pressable>
                 <Text style={styles.screenTitle}>Debate</Text>
@@ -284,7 +284,7 @@ export default function DebatePage() {
                   <View style={styles.vsContainer}>
                     <View style={styles.vsLine} />
                     <View style={styles.vsPill}>
-                      <Swords size={12} color="#22d3ee" strokeWidth={2.2} />
+                      <Swords size={13} color="#22d3ee" strokeWidth={2.2} />
                       <Text style={styles.vsText}>VS</Text>
                     </View>
                     <View style={styles.vsLine} />
@@ -344,7 +344,7 @@ export default function DebatePage() {
                 {!defendText.trim() && !photo && !videoFile ? (
                   <View style={styles.iconsOverlay} pointerEvents="box-none">
                     <Pressable onPress={addphoto} style={styles.iconButtonInline} hitSlop={6}>
-                      <ImageIcon size={18} color="#9ca3af" strokeWidth={1.8} />
+                      <ImageIcon size={19} color="#9ca3af" strokeWidth={1.8} />
                     </Pressable>
                     <Pressable
                       onPress={() => {
@@ -356,10 +356,10 @@ export default function DebatePage() {
                       style={styles.iconButtonInline}
                       hitSlop={6}
                     >
-                      <Camera size={18} color="#9ca3af" strokeWidth={1.8} />
+                      <Camera size={19} color="#9ca3af" strokeWidth={1.8} />
                     </Pressable>
                     <Pressable onPress={pickVideo} style={styles.iconButtonInline} hitSlop={6}>
-                      <VideoIcon size={18} color="#9ca3af" strokeWidth={1.8} />
+                      <VideoIcon size={19} color="#9ca3af" strokeWidth={1.8} />
                     </Pressable>
                   </View>
                 ) : null}
@@ -375,7 +375,7 @@ export default function DebatePage() {
                         setImageFilename(null);
                       }}
                     >
-                      <X size={11} color="#fff" />
+                      <X size={12} color="#fff" />
                     </Pressable>
                   </View>
                 ) : null}
@@ -390,7 +390,7 @@ export default function DebatePage() {
                         setVideoFilename(null);
                       }}
                     >
-                      <X size={11} color="#fff" />
+                      <X size={12} color="#fff" />
                     </Pressable>
                   </View>
                 ) : null}

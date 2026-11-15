@@ -25,12 +25,12 @@ const avatarStyle = tva({
   base: 'rounded-full justify-center items-center relative bg-primary-600 group-[.avatar-group]/avatar-group:-ml-2.5',
   variants: {
     size: {
-      'xs': 'w-[21.6px] h-[21.6px]',
-      'sm': 'w-[28.8px] h-[28.8px]',
-      'md': 'w-[43.2px] h-[43.2px]',
-      'lg': 'w-[57.6px] h-[57.6px]',
-      'xl': 'w-[86.4px] h-[86.4px]',
-      '2xl': 'w-[115.2px] h-[115.2px]',
+      'xs': 'w-[22.8px] h-[22.8px]',
+      'sm': 'w-[30.4px] h-[30.4px]',
+      'md': 'w-[45.6px] h-[45.6px]',
+      'lg': 'w-[60.8px] h-[60.8px]',
+      'xl': 'w-[91.2px] h-[91.2px]',
+      '2xl': 'w-[121.6px] h-[121.6px]',
     },
   },
 });

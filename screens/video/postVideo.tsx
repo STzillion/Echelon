@@ -70,7 +70,7 @@ export function PostVideo({ uri, isVisible }: SocialVideoPlayerProps) {
       </Pressable>
 
       {/*<Pressable style={styles.muteButton} onPress={toggleMute}>
-        {isMuted ? <VolumeX size={14} color="white" /> : <Volume2 size={14} color="white" />}
+        {isMuted ? <VolumeX size={15} color="white" /> : <Volume2 size={15} color="white" />}
       </Pressable>
       */}
     </View>

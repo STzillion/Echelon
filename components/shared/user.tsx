@@ -451,7 +451,7 @@ export default ({ user }: { user?: User }) => {
                     <View style={styles.postContent}>
                       {post.repost_user && (
                         <View style={styles.repostInfoRow}>
-                          <Repeat size={14} color="#aaa" strokeWidth={2} />
+                          <Repeat size={15} color="#aaa" strokeWidth={2} />
                           <Text style={styles.repostInfo}>Reposted by </Text>
                           <Pressable onPress={() => router.push({ pathname: `/user`, params: { userId: post.repost_user_id } })}>
                             <Text style={styles.repostInfo}>{post.repost_user.username}</Text>
@@ -579,7 +579,7 @@ export default ({ user }: { user?: User }) => {
                       <View style={[styles.actionsRow, Platform.OS === 'web' && styles.webActionsRow]}>
                         <View style={styles.likeGroup}>
                           <Pressable onPress={() => toggleLike(originalPost)} style={styles.actionIcon}>
-                            <Heart size={18} color={isLiked ? 'red' : 'grey'} fill={isLiked ? 'red' : 'transparent'} />
+                            <Heart size={19} color={isLiked ? 'red' : 'grey'} fill={isLiked ? 'red' : 'transparent'} />
                           </Pressable>
                           {(post.likes?.length ?? 0) > 0 && (
                             <Text style={styles.likeCount}>{post.likes!.length}</Text>
@@ -596,7 +596,7 @@ export default ({ user }: { user?: User }) => {
                               })
                             }
                           >
-                            <MessageCircle size={18} color="#b0b0b0" />
+                            <MessageCircle size={19} color="#b0b0b0" />
                           </Pressable>
                           {commentCount > 0 && (
                             <Text style={styles.commentCount}>{commentCount}</Text>
@@ -605,7 +605,7 @@ export default ({ user }: { user?: User }) => {
 
                         <View style={styles.repostGroup}>
                           <Pressable onPress={() => toggleRepost(originalPost)} style={styles.actionIcon}>
-                            <Repeat size={18} color={isReposted ? 'cyan' : '#b0b0b0'} />
+                            <Repeat size={19} color={isReposted ? 'cyan' : '#b0b0b0'} />
                           </Pressable>
                           {repostCount > 0 && (
                             <Text style={styles.repostCount}>{repostCount}</Text>
@@ -623,7 +623,7 @@ export default ({ user }: { user?: User }) => {
                             }
                           >
                             <View style={styles.buttonContent}>
-                              <VoteIcon size={14} color="#b0b0b0" />
+                              <VoteIcon size={15} color="#b0b0b0" />
                               <Text style={styles.buttonText}>Vote</Text>
                             </View>
                           </Pressable>
@@ -638,7 +638,7 @@ export default ({ user }: { user?: User }) => {
                             }
                           >
                             <View style={styles.buttonContent}>
-                              <Swords size={14} color="#b0b0b0" />
+                              <Swords size={15} color="#b0b0b0" />
                               <Text style={styles.buttonText}>Debate</Text>
                             </View>
                           </Pressable>
@@ -653,7 +653,7 @@ export default ({ user }: { user?: User }) => {
                             }
                           >
                             <View style={styles.buttonContent}>
-                              <EyeIcon size={14} color="#b0b0b0" />
+                              <EyeIcon size={15} color="#b0b0b0" />
                               <Text style={styles.buttonText}>View</Text>
                             </View>
                           </Pressable>

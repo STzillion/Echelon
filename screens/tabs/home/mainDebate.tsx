@@ -24,7 +24,7 @@ import {
   Video as VideoIcon,
   X
 } from 'lucide-react-native';
-import { ComponentRef, Fragment, ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import React, { ComponentRef, Fragment, ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -34,7 +34,6 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   LayoutChangeEvent,
-  ListRenderItem,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -49,6 +48,18 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { createCompactStyleSheet } from '@/lib/compact-ui';
+
+const MAIN_DEBATE_SIZE_SCALE = 1.05;
+const MAIN_DEBATE_UNSCALED_INDICATORS = new Set([
+  'dot',
+  'dotActive',
+  'dotsIndicatorContainer',
+  'paginationRow',
+  'threadDot',
+  'threadDotActive',
+  'threadPagination',
+]);
+const scaleMainDebateUiSize = (size: number) => size * MAIN_DEBATE_SIZE_SCALE;
 
 interface ExchangeItem {
   id: string;
@@ -168,7 +179,11 @@ function CommentDebateSection({
           slideCount={comments.length}
           request={scrollRequest}
           onLayout={() => {}}
-          renderItem={({ item, index }) => renderComment(item, targetComment, activeIndex === index)}
+          renderItem={(item, index) => renderComment(item, targetComment, activeIndex === index)}
+          onScrollPositionChange={(offset) => {
+            const index = Math.max(0, Math.min(Math.round(offset / carouselWidth), comments.length - 1));
+            setActiveIndex(index);
+          }}
           onMomentumScrollEnd={handleMomentumScrollEnd}
         >
           {webWindowStart > 0 ? <View style={{ width: webWindowStart * carouselWidth }} /> : null}
@@ -187,7 +202,7 @@ function CommentDebateSection({
               accessibilityLabel="Previous debate comment"
               style={[styles.webCarouselArrow, styles.webCarouselArrowLeft, activeIndex <= 0 && styles.webCarouselArrowDisabled]}
             >
-              <ChevronLeft size={16} color="#fff" />
+              <ChevronLeft size={scaleMainDebateUiSize(17)} color="#fff" />
             </Pressable>
             <Pressable
               onPress={() => goToPage(activeIndex + 1)}
@@ -196,7 +211,7 @@ function CommentDebateSection({
               accessibilityLabel="Next debate comment"
               style={[styles.webCarouselArrow, styles.webCarouselArrowRight, activeIndex >= comments.length - 1 && styles.webCarouselArrowDisabled]}
             >
-              <ChevronRight size={16} color="#fff" />
+              <ChevronRight size={scaleMainDebateUiSize(17)} color="#fff" />
             </Pressable>
           </View>
         ) : null}
@@ -213,6 +228,17 @@ function CommentDebateSection({
   );
 }
 
+type FlatListScrollViewBridgeProps = React.ComponentProps<typeof ScrollView> & {
+  ref?: React.Ref<ComponentRef<typeof ScrollView>>;
+};
+
+function FlatListScrollViewBridge({
+  ref,
+  ...props
+}: FlatListScrollViewBridgeProps) {
+  return <ScrollView {...props} scrollViewRef={ref} />;
+}
+
 function CommentThreadScroller({
   width,
   items,
@@ -220,8 +246,8 @@ function CommentThreadScroller({
   request,
   onLayout,
   renderItem,
+  onScrollPositionChange,
   onMomentumScrollEnd,
-  debugThreadRootId,
   children,
 }: {
   width: number;
@@ -229,15 +255,15 @@ function CommentThreadScroller({
   slideCount: number;
   request?: ThreadScrollRequest;
   onLayout: (event: LayoutChangeEvent) => void;
-  renderItem: ListRenderItem<CommentItem>;
+  renderItem: (item: CommentItem, index: number) => ReactNode;
+  onScrollPositionChange?: (offset: number) => void;
   onMomentumScrollEnd: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
-  debugThreadRootId?: string;
   children: ReactNode;
 }) {
   const [translateX] = useState(() => new Animated.Value(0));
   const listRef = useRef<FlatList<CommentItem>>(null);
-  const debugScrollRequestToken = useRef<number | undefined>(undefined);
-  const debugScrollEventCount = useRef(0);
+  const [nativeLayout, setNativeLayout] = useState<{ width: number; height: number } | null>(null);
+  const [nativeContentSize, setNativeContentSize] = useState<{ width: number; height: number } | null>(null);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || request?.offset === undefined || !width) return;
@@ -249,26 +275,24 @@ function CommentThreadScroller({
     }).start();
   }, [request?.token, request?.offset, slideCount, translateX, width]);
 
-  useEffect(() => {
-    if (Platform.OS === 'web' || request?.offset === undefined || !width) return;
+  useLayoutEffect(() => {
+    if (
+      Platform.OS === 'web' ||
+      request?.offset === undefined ||
+      !width ||
+      !nativeLayout ||
+      !nativeContentSize
+    ) return;
     const offset = request.offset;
-    const frame = requestAnimationFrame(() => {
-      if (__DEV__) {
-        console.log('[thread-carousel-debug] request effect scroll', {
-          threadRootId: debugThreadRootId,
-          index: request.index,
-          offset,
-          width,
-          hasListRef: Boolean(listRef.current),
-        });
-      }
-      listRef.current?.scrollToOffset({ offset, animated: true });
-    });
-
-    return () => {
-      cancelAnimationFrame(frame);
-    };
-  }, [debugThreadRootId, request?.token, request?.offset, request?.index, width]);
+    listRef.current?.scrollToOffset({ offset, animated: false });
+  }, [
+    nativeContentSize,
+    nativeLayout,
+    request?.token,
+    request?.offset,
+    request?.index,
+    width,
+  ]);
 
   if (Platform.OS === 'web') {
     return (
@@ -281,30 +305,36 @@ function CommentThreadScroller({
   }
 
   const handleNativeScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    if (__DEV__ && request?.token !== undefined) {
-      if (debugScrollRequestToken.current !== request.token) {
-        debugScrollRequestToken.current = request.token;
-        debugScrollEventCount.current = 0;
-      }
-      if (debugScrollEventCount.current < 6) {
-        debugScrollEventCount.current += 1;
-        console.log('[thread-carousel-debug] native scroll offset', {
-          threadRootId: debugThreadRootId,
-          requestIndex: request.index,
-          requestedOffset: request.offset,
-          actualOffset: event.nativeEvent.contentOffset.x,
-          width,
-          sample: debugScrollEventCount.current,
-        });
-      }
-    }
+    onScrollPositionChange?.(event.nativeEvent.contentOffset.x);
+  };
+
+  const handleNativeLayout = (event: LayoutChangeEvent) => {
+    const { width: layoutWidth, height: layoutHeight } = event.nativeEvent.layout;
+    setNativeLayout((current) =>
+      current?.width === layoutWidth && current.height === layoutHeight
+        ? current
+        : { width: layoutWidth, height: layoutHeight }
+    );
+    onLayout(event);
+  };
+
+  const handleNativeContentSizeChange = (contentWidth: number, contentHeight: number) => {
+    setNativeContentSize((current) =>
+      current?.width === contentWidth && current.height === contentHeight
+        ? current
+        : { width: contentWidth, height: contentHeight }
+    );
   };
 
   return (
     <FlatList
       ref={listRef}
       data={items}
-      renderItem={renderItem}
+      renderItem={({ item, index }) => (
+        <View style={{ width }}>
+          {renderItem(item, index)}
+        </View>
+      )}
       keyExtractor={(item) => item.id}
       horizontal
       pagingEnabled
@@ -312,15 +342,17 @@ function CommentThreadScroller({
       decelerationRate="fast"
       snapToInterval={width}
       snapToAlignment="start"
+      onLayout={handleNativeLayout}
+      onScroll={handleNativeScroll}
+      scrollEventThrottle={16}
+      onContentSizeChange={handleNativeContentSizeChange}
+      onMomentumScrollEnd={onMomentumScrollEnd}
       initialNumToRender={2}
       maxToRenderPerBatch={3}
       updateCellsBatchingPeriod={16}
       windowSize={5}
       getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
-      onLayout={onLayout}
-      onScroll={handleNativeScroll}
-      scrollEventThrottle={100}
-      onMomentumScrollEnd={onMomentumScrollEnd}
+      renderScrollComponent={(props) => <FlatListScrollViewBridge {...props} />}
     />
   );
 }
@@ -767,10 +799,12 @@ export default function MainDebateScreen() {
     index: number
   ) => {
     const boundedIndex = Math.max(0, Math.min(index, threadComments.length - 1));
-    setActiveThreadCommentIds((ids) => ({
-      ...ids,
-      [threadRootId]: threadComments[boundedIndex]?.id ?? threadRootId,
-    }));
+    const activeCommentId = threadComments[boundedIndex]?.id ?? threadRootId;
+    setActiveThreadCommentIds((ids) =>
+      ids[threadRootId] === activeCommentId
+        ? ids
+        : { ...ids, [threadRootId]: activeCommentId }
+    );
 
     if (lastThreadSlideIndices.current[threadRootId] === boundedIndex) return;
     lastThreadSlideIndices.current[threadRootId] = boundedIndex;
@@ -1025,15 +1059,6 @@ export default function MainDebateScreen() {
     if (!threadComments.length) return;
     const boundedIndex = Math.max(0, Math.min(index, threadComments.length - 1));
     const offset = boundedIndex * threadSlideWidth;
-    if (__DEV__) {
-      console.log('[thread-carousel-debug] request scroll', {
-        threadRootId,
-        index: boundedIndex,
-        offset,
-        width: threadSlideWidth,
-        threadCommentIds: threadComments.map((comment) => comment.id),
-      });
-    }
     setThreadScrollRequests((requests) => ({
       ...requests,
       [threadRootId]: {
@@ -1069,15 +1094,6 @@ export default function MainDebateScreen() {
   const navigateToThreadComment = async (threadRootId: string, targetCommentId: string) => {
     const threadComments = getThreadComments(threadRootId);
     const targetIndex = threadComments.findIndex((comment) => comment.id === targetCommentId);
-    if (__DEV__) {
-      console.log('[thread-carousel-debug] reference pressed', {
-        threadRootId,
-        targetCommentId,
-        targetIndex,
-        width: threadSlideWidth,
-        threadCommentIds: threadComments.map((comment) => comment.id),
-      });
-    }
     if (targetIndex >= 0) {
       requestThreadScroll(threadRootId, targetIndex);
       Haptics.selectionAsync();
@@ -1204,7 +1220,7 @@ export default function MainDebateScreen() {
                     accessibilityRole="button"
                     accessibilityLabel="Debate"
                   >
-                    <Swords size={14} color="#fbbf24" />
+                    <Swords size={scaleMainDebateUiSize(15)} color="#fbbf24" />
                     <Text style={styles.postActionText}>Debate</Text>
                   </Pressable>
                 ) : (
@@ -1213,26 +1229,26 @@ export default function MainDebateScreen() {
                       onPress={() => (isCommentLiked ? removeCommentLike(comment) : addCommentLike(comment))}
                       style={styles.postAction}
                     >
-                      <Heart size={14} color={isCommentLiked ? '#ef4444' : '#b0b0b0'} fill={isCommentLiked ? '#ef4444' : 'transparent'} />
+                      <Heart size={scaleMainDebateUiSize(19)} color={isCommentLiked ? '#ef4444' : '#b0b0b0'} fill={isCommentLiked ? '#ef4444' : 'transparent'} />
                       {(comment.likes?.length ?? 0) > 0 ? <Text style={styles.postActionText}>{comment.likes!.length}</Text> : null}
                     </Pressable>
                     <Pressable
                       onPress={() => (isCommentReposted ? removeCommentRepost(comment) : addCommentRepost(comment))}
                       style={styles.postAction}
                     >
-                      <Repeat size={14} color={isCommentReposted ? '#22d3ee' : '#b0b0b0'} />
+                      <Repeat size={scaleMainDebateUiSize(19)} color={isCommentReposted ? '#22d3ee' : '#b0b0b0'} />
                       {(comment.reposts?.length ?? 0) > 0 ? <Text style={styles.postActionText}>{comment.reposts!.length}</Text> : null}
                     </Pressable>
                     <Pressable
                       onPress={() => selectThreadReplyTarget(threadRootId, comment.id)}
                       style={styles.postAction}
                     >
-                      <MessageCircle size={14} color="#b0b0b0" />
+                      <MessageCircle size={scaleMainDebateUiSize(19)} color="#b0b0b0" />
                       <Text style={styles.postActionText}>Reply</Text>
                     </Pressable>
                     {comment.is_debatable ? (
                       <Pressable onPress={() => handleCommentDebatePress(comment.id)} style={styles.postAction}>
-                        <Swords size={14} color="#b0b0b0" />
+                        <Swords size={scaleMainDebateUiSize(15)} color="#b0b0b0" />
                       </Pressable>
                     ) : null}
                   </>
@@ -1619,12 +1635,12 @@ export default function MainDebateScreen() {
           {/* Top Header */}
           <View style={styles.topHeader}>
             <Pressable onPress={() => router.back()} style={styles.headerBackButton} hitSlop={12}>
-              <ArrowLeft size={18} color="#fff" />
+              <ArrowLeft size={scaleMainDebateUiSize(19)} color="#fff" />
             </Pressable>
 
             <Text style={styles.topHeaderTitle}>Debate</Text>
 
-            <View style={{ width: 36 }} />
+            <View style={{ width: scaleMainDebateUiSize(36) }} />
           </View>
 
           {loading ? (
@@ -1656,7 +1672,7 @@ export default function MainDebateScreen() {
                 {debateTargetComment ? (
                   <View style={styles.debateTargetCard}>
                     <View style={styles.debateTargetHeading}>
-                      <Swords size={13} color="#fbbf24" />
+                      <Swords size={scaleMainDebateUiSize(14)} color="#fbbf24" />
                       <Text style={styles.debateTargetLabel}>DEBATING THIS COMMENT</Text>
                     </View>
                     <Text style={styles.debateTargetAuthor}>
@@ -1821,7 +1837,7 @@ export default function MainDebateScreen() {
                                 onPress={() => setReplyPhoto('')}
                                 style={styles.removeMediaBtn}
                               >
-                                <X size={13} color="#fff" />
+                                <X size={scaleMainDebateUiSize(14)} color="#fff" />
                               </Pressable>
                             </View>
                           ) : null}
@@ -1834,7 +1850,7 @@ export default function MainDebateScreen() {
                                 onPress={() => setReplyVideo('')}
                                 style={styles.removeMediaBtn}
                               >
-                                <X size={13} color="#fff" />
+                                <X size={scaleMainDebateUiSize(14)} color="#fff" />
                               </Pressable>
                             </View>
                           ) : null}
@@ -1843,10 +1859,10 @@ export default function MainDebateScreen() {
                           <View style={styles.inputCardActions}>
                             <View style={styles.inputMediaButtons}>
                               <Pressable onPress={handlePickPhoto} style={styles.mediaActionBtn}>
-                                <ImageIcon size={16} color="#94a3b8" />
+                                <ImageIcon size={scaleMainDebateUiSize(17)} color="#94a3b8" />
                               </Pressable>
                               <Pressable onPress={handlePickVideo} style={styles.mediaActionBtn}>
-                                <VideoIcon size={16} color="#94a3b8" />
+                                <VideoIcon size={scaleMainDebateUiSize(17)} color="#94a3b8" />
                               </Pressable>
                             </View>
 
@@ -1863,7 +1879,7 @@ export default function MainDebateScreen() {
                               ) : (
                                 <>
                                   <Text style={styles.submitCounterBtnText}>Post Counter</Text>
-                                  <Send size={13} color="#fff" />
+                                  <Send size={scaleMainDebateUiSize(14)} color="#fff" />
                                 </>
                               )}
                             </Pressable>
@@ -1883,7 +1899,7 @@ export default function MainDebateScreen() {
                       accessibilityLabel="Previous debate card"
                       style={[styles.webCarouselArrow, styles.webCarouselArrowLeft, activeIndex <= 0 && styles.webCarouselArrowDisabled]}
                     >
-                      <ChevronLeft size={18} color="#fff" />
+                      <ChevronLeft size={scaleMainDebateUiSize(19)} color="#fff" />
                     </Pressable>
                     <Pressable
                       onPress={() => scrollToSlide(activeIndex + 1)}
@@ -1892,7 +1908,7 @@ export default function MainDebateScreen() {
                       accessibilityLabel="Next debate card"
                       style={[styles.webCarouselArrow, styles.webCarouselArrowRight, activeIndex >= totalSlides - 1 && styles.webCarouselArrowDisabled]}
                     >
-                      <ChevronRight size={18} color="#fff" />
+                      <ChevronRight size={scaleMainDebateUiSize(19)} color="#fff" />
                     </Pressable>
                   </View>
                 ) : null}
@@ -1920,7 +1936,7 @@ export default function MainDebateScreen() {
               <View style={styles.postActionsRow}>
                 <Pressable onPress={handleToggleLike} style={styles.postAction}>
                   <Heart
-                    size={18}
+                    size={scaleMainDebateUiSize(19)}
                     color={isLiked ? '#ef4444' : '#b0b0b0'}
                     fill={isLiked ? '#ef4444' : 'transparent'}
                   />
@@ -1932,13 +1948,13 @@ export default function MainDebateScreen() {
                   onPress={() => mainScrollRef.current?.scrollToEnd({ animated: true })}
                   style={styles.postAction}
                 >
-                  <MessageCircle size={18} color="#b0b0b0" />
+                  <MessageCircle size={scaleMainDebateUiSize(19)} color="#b0b0b0" />
                   {commentsCount > 0 ? (
                     <Text style={styles.postActionText}>{commentsCount}</Text>
                   ) : null}
                 </Pressable>
                 <Pressable onPress={handleToggleRepost} style={styles.postAction}>
-                  <Repeat size={18} color={isReposted ? '#22d3ee' : '#b0b0b0'} />
+                  <Repeat size={scaleMainDebateUiSize(19)} color={isReposted ? '#22d3ee' : '#b0b0b0'} />
                   {repostCount > 0 ? (
                     <Text style={styles.postActionText}>{repostCount}</Text>
                   ) : null}
@@ -1977,14 +1993,17 @@ export default function MainDebateScreen() {
                             items={threadComments}
                             slideCount={threadComments.length}
                             request={threadScrollRequests[comment.id]}
-                            debugThreadRootId={comment.id}
-                            renderItem={({ item }) => renderThreadCommentCard(
+                            renderItem={(item) => renderThreadCommentCard(
                               item,
                               comment.id,
                               activeThreadCommentId
                                 ? activeThreadCommentId === item.id
                                 : item.id === comment.id
                             )}
+                            onScrollPositionChange={(offset) => {
+                              const index = Math.round(offset / threadSlideWidth);
+                              handleThreadCarouselPageChange(comment.id, threadComments, index);
+                            }}
                             onLayout={(event) => {
                               const activeIndex = Math.max(
                                 0,
@@ -2003,15 +2022,6 @@ export default function MainDebateScreen() {
                             onMomentumScrollEnd={(event) => {
                               const offset = event.nativeEvent.contentOffset.x;
                               const index = Math.round(offset / threadSlideWidth);
-                              if (__DEV__) {
-                                console.log('[thread-carousel-debug] momentum scroll end', {
-                                  threadRootId: comment.id,
-                                  offset,
-                                  index,
-                                  width: threadSlideWidth,
-                                  threadCommentIds: threadComments.map((item) => item.id),
-                                });
-                              }
                               handleThreadCarouselPageChange(comment.id, threadComments, index);
                             }}
                           >
@@ -2043,7 +2053,7 @@ export default function MainDebateScreen() {
                                 accessibilityLabel="Previous comment"
                                 style={[styles.webCarouselArrow, styles.webCarouselArrowLeft, activeThreadIndex <= 0 && styles.webCarouselArrowDisabled]}
                               >
-                                <ChevronLeft size={16} color="#fff" />
+                                <ChevronLeft size={scaleMainDebateUiSize(17)} color="#fff" />
                               </Pressable>
                               <Pressable
                                 onPress={() => stepThreadSlide(comment.id, 1, threadComments.length)}
@@ -2052,7 +2062,7 @@ export default function MainDebateScreen() {
                                 accessibilityLabel="Next comment"
                                 style={[styles.webCarouselArrow, styles.webCarouselArrowRight, activeThreadIndex >= threadComments.length - 1 && styles.webCarouselArrowDisabled]}
                               >
-                                <ChevronRight size={16} color="#fff" />
+                                <ChevronRight size={scaleMainDebateUiSize(17)} color="#fff" />
                               </Pressable>
                             </View>
                           ) : null}
@@ -2165,7 +2175,7 @@ export default function MainDebateScreen() {
                         accessibilityRole="button"
                         accessibilityLabel="Cancel reply"
                       >
-                        <X size={14} color="#71767b" />
+                        <X size={scaleMainDebateUiSize(15)} color="#71767b" />
                       </Pressable>
                     </View>
                   ) : null}
@@ -2191,10 +2201,10 @@ export default function MainDebateScreen() {
                   />
                   <View style={styles.newCommentFooter}>
                     <Pressable onPress={pickNewCommentPhoto} accessibilityRole="button" accessibilityLabel="Add photo">
-                      <ImageIcon size={16} color="#b0b0b0" />
+                      <ImageIcon size={scaleMainDebateUiSize(17)} color="#b0b0b0" />
                     </Pressable>
                     <Pressable onPress={pickNewCommentVideo} accessibilityRole="button" accessibilityLabel="Add video">
-                      <VideoIcon size={16} color="#b0b0b0" />
+                      <VideoIcon size={scaleMainDebateUiSize(17)} color="#b0b0b0" />
                     </Pressable>
                     <Pressable
                       onPress={handleComposerSubmit}
@@ -2239,7 +2249,7 @@ export default function MainDebateScreen() {
                     style={styles.commentTypeOption}
                     accessibilityRole="button"
                   >
-                    <MessageCircle size={16} color="#22d3ee" />
+                    <MessageCircle size={scaleMainDebateUiSize(17)} color="#22d3ee" />
                     <Text style={styles.commentTypeOptionText}>
                       {pendingReplyTarget || replyingTo ? 'Post reply' : 'Post comment'}
                     </Text>
@@ -2249,7 +2259,7 @@ export default function MainDebateScreen() {
                     style={styles.commentTypeOption}
                     accessibilityRole="button"
                   >
-                    <Swords size={16} color="#fbbf24" />
+                    <Swords size={scaleMainDebateUiSize(17)} color="#fbbf24" />
                     <Text style={styles.commentTypeOptionText}>Start debate</Text>
                   </Pressable>
                   <Pressable
@@ -2270,7 +2280,8 @@ export default function MainDebateScreen() {
   );
 }
 
-const styles = createCompactStyleSheet({
+const styles = createCompactStyleSheet(
+  {
   screen: {
     flex: 1,
     backgroundColor: '#0f0f0f',
@@ -3010,4 +3021,7 @@ const styles = createCompactStyleSheet({
     fontSize: 11,
     fontWeight: '700',
   },
-});
+  },
+  MAIN_DEBATE_SIZE_SCALE,
+  MAIN_DEBATE_UNSCALED_INDICATORS,
+);

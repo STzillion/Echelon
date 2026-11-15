@@ -58,11 +58,11 @@ const buttonStyle = tva({
     },
 
     size: {
-      xs: 'px-[12.6px] h-[28.8px]',
-      sm: 'px-[14.4px] h-[32.4px]',
-      md: 'px-[18px] h-9',
-      lg: 'px-[21.6px] h-[39.6px]',
-      xl: 'px-[25.2px] h-[43.2px]',
+      xs: 'px-[13.3px] h-[30.4px]',
+      sm: 'px-[15.2px] h-[34.2px]',
+      md: 'px-[19px] h-[38px]',
+      lg: 'px-[22.8px] h-[41.8px]',
+      xl: 'px-[26.6px] h-[45.6px]',
     },
   },
   compoundVariants: [
@@ -206,11 +206,11 @@ const buttonIconStyle = tva({
         'text-typography-0 data-[hover=true]:text-typography-0 data-[active=true]:text-typography-0',
     },
     size: {
-      xs: 'h-[12.6px] w-[12.6px]',
-      sm: 'h-[14.4px] w-[14.4px]',
-      md: 'h-[16.2px] w-[16.2px]',
-      lg: 'h-[16.2px] w-[16.2px]',
-      xl: 'h-[18px] w-[18px]',
+      xs: 'h-[13.3px] w-[13.3px]',
+      sm: 'h-[15.2px] w-[15.2px]',
+      md: 'h-[17.1px] w-[17.1px]',
+      lg: 'h-[17.1px] w-[17.1px]',
+      xl: 'h-[19px] w-[19px]',
     },
     action: {
       primary:
@@ -358,7 +358,7 @@ const ButtonIcon = React.forwardRef<
         ref={ref}
         {...props}
         className={buttonIconStyle({ class: className })}
-        size={size * 0.9}
+        size={size * 0.95}
       />
     );
   } else if (

@@ -9,3 +9,13 @@ body,
 	margin: 0;
 	background-color: #0f0f0f;
 }
+
+#root {
+	zoom: 1.05;
+}
+
+#root span,
+#root input,
+#root textarea {
+	zoom: 1.1;
+}
