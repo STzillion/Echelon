@@ -1,5 +1,6 @@
 "use client";
 import { Text } from '@/components/ui/text';
+import { createCompactStyleSheet } from '@/lib/compact-ui';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/providers/AuthProvider';
 import { Post, User, usedPosts } from '@/providers/PostsProvider';
@@ -12,7 +13,6 @@ import { router, useFocusEffect } from 'expo-router';
 import { EyeIcon, Heart, MessageCircle, Repeat, Swords, VoteIcon } from 'lucide-react-native';
 import React, { useState } from 'react';
 import { Alert, Image, Platform, Pressable, ScrollView, View } from 'react-native';
-import { createCompactStyleSheet } from '@/lib/compact-ui';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const Image_Url = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/`;
@@ -260,6 +260,9 @@ export default ({ user }: { user?: User }) => {
   };
 
     const addphoto = async () => {
+
+      if(!isOwnProfile) return;
+
       const { data: { user } } = await supabase.auth.getUser();
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.All,
