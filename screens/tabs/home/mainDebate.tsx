@@ -1,5 +1,10 @@
 import { Text } from '@/components/ui/text';
 import { CommentItem, useComments } from '@/hooks/use-comments';
+import {
+  InlineCommentDebate,
+  useCommentDebates,
+  useDebate,
+} from '@/hooks/use-debate';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/providers/AuthProvider';
 import { Post, User } from '@/providers/PostsProvider';
@@ -110,28 +115,6 @@ type ThreadScrollRequest = {
   token: number;
   index?: number;
   offset?: number;
-};
-
-type InlineDebateSegment = {
-  id: string;
-  debate_id: string;
-  speaker_id: string;
-  text: string | null;
-  file: string | null;
-  side: 'root' | 'challenger';
-  round_number: number;
-  created_at: string;
-  speaker?: { id: string; username: string; avatar?: string | null };
-};
-
-type InlineCommentDebate = {
-  id: string;
-  root_comment_id: string;
-  challenger_id: string;
-  opponent_id: string | null;
-  challenger?: { id: string; username: string; avatar?: string | null };
-  opponent?: { id: string; username: string; avatar?: string | null } | null;
-  segments: InlineDebateSegment[];
 };
 
 function CommentDebateSection({
@@ -369,9 +352,6 @@ export default function MainDebateScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [rootPost, setRootPost] = useState<Post | null>(null);
-  const [debate, setDebate] = useState<any | null>(null);
-  const [debateTargetComment, setDebateTargetComment] = useState<CommentItem | null>(null);
-  const [commentDebates, setCommentDebates] = useState<Record<string, InlineCommentDebate>>({});
   const [collapsedCommentDebates, setCollapsedCommentDebates] = useState<Record<string, boolean>>({});
   const [exchanges, setExchanges] = useState<ExchangeItem[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -394,64 +374,22 @@ export default function MainDebateScreen() {
     updateComment,
     refetch: refetchComments,
   } = useComments(rootPost?.id);
-  const loadedCommentIdsKey = (comments ?? []).map((comment) => comment.id).join(',');
+  const {
+    commentDebates,
+    load: loadCommentDebates,
+    create: createInlineCommentDebate,
+    submitResponse: submitInlineCommentDebateResponse,
+  } = useCommentDebates(comments?.map((comment) => comment.id) ?? []);
+  const {
+    debate,
+    targetComment: debateTargetComment,
+    load: loadDebate,
+    submitSegment,
+  } = useDebate();
 
   useEffect(() => {
-    if (!loadedCommentIdsKey) return;
-
-    const loadedCommentIds = loadedCommentIdsKey.split(',');
-    let cancelled = false;
-    const loadCommentDebates = async () => {
-      const { data: debates, error: debatesError } = await supabase
-        .from('Debate')
-        .select('*, challenger:User!challenger_id(id,username,avatar), opponent:User!opponent_id(id,username,avatar)')
-        .in('root_comment_id', loadedCommentIds);
-
-      if (debatesError) {
-        console.error('Error loading comment debates:', debatesError);
-        return;
-      }
-
-      const debateIds = (debates ?? []).map((item) => item.id);
-      let segments: InlineDebateSegment[] = [];
-      if (debateIds.length) {
-        const { data: segmentData, error: segmentsError } = await supabase
-          .from('DebateSegment')
-          .select('*, speaker:User!speaker_id(id,username,avatar)')
-          .in('debate_id', debateIds)
-          .order('round_number', { ascending: true });
-
-        if (segmentsError) {
-          console.error('Error loading comment debate responses:', segmentsError);
-          return;
-        }
-        segments = (segmentData ?? []) as unknown as InlineDebateSegment[];
-      }
-
-      if (cancelled) return;
-      const segmentsByDebate = new Map<string, InlineDebateSegment[]>();
-      segments.forEach((segment) => {
-        const existing = segmentsByDebate.get(segment.debate_id) ?? [];
-        existing.push(segment);
-        segmentsByDebate.set(segment.debate_id, existing);
-      });
-
-      const nextDebates: Record<string, InlineCommentDebate> = {};
-      (debates ?? []).forEach((item) => {
-        if (!item.root_comment_id) return;
-        nextDebates[item.root_comment_id] = {
-          ...(item as unknown as Omit<InlineCommentDebate, 'segments'>),
-          segments: segmentsByDebate.get(item.id) ?? [],
-        };
-      });
-      setCommentDebates(nextDebates);
-    };
-
-    void loadCommentDebates();
-    return () => {
-      cancelled = true;
-    };
-  }, [loadedCommentIdsKey]);
+    void Promise.resolve().then(() => loadCommentDebates());
+  }, [loadCommentDebates]);
 
   // Votes state
   const [opVotes, setOpVotes] = useState(31);
@@ -514,37 +452,11 @@ export default function MainDebateScreen() {
         setRootPost(postData as any);
       }
 
-      // 2. Fetch debate record
-      let debateQuery = supabase
-        .from('Debate')
-        .select('*, challenger:User!challenger_id(*), opponent:User!opponent_id(*)');
-
-      if (debateId) {
-        debateQuery = debateQuery.eq('id', debateId);
-      } else if (postData?.id || targetPostId) {
-        debateQuery = debateQuery.eq('root_post_id', postData?.id || targetPostId);
-      }
-
-      const { data: debateData, error: debateErr } = await debateQuery.maybeSingle();
-      if (debateErr) console.warn('Error loading debate:', debateErr.message);
-
-      setDebate(debateData);
-
-      let targetComment: CommentItem | null = null;
-      if (debateData?.root_comment_id) {
-        const { data: targetData, error: targetError } = await supabase
-          .from('Comment')
-          .select('*, speaker:User!speaker_id(id,username,avatar)')
-          .eq('id', debateData.root_comment_id)
-          .maybeSingle();
-
-        if (targetError) {
-          console.error('Error loading debate target comment:', targetError);
-        } else {
-          targetComment = targetData as unknown as CommentItem | null;
-        }
-      }
-      setDebateTargetComment(targetComment);
+      // 2. Load debate domain state
+      const debateResult = await loadDebate(postData?.id || targetPostId, debateId);
+      const debateData = debateResult.debate;
+      const targetComment = debateResult.targetComment as unknown as CommentItem | null;
+      const debateSegments = debateResult.segments;
 
       if (!postData && targetComment?.post_id) {
         const { data: targetPost, error: targetPostError } = await supabase
@@ -558,21 +470,6 @@ export default function MainDebateScreen() {
         } else if (targetPost) {
           postData = targetPost;
           setRootPost(targetPost as Post);
-        }
-      }
-
-      let debateSegments: any[] = [];
-      if (debateData?.id) {
-        const { data: segmentData, error: segmentError } = await supabase
-          .from('DebateSegment')
-          .select('*')
-          .eq('debate_id', debateData.id)
-          .order('round_number', { ascending: true });
-
-        if (segmentError) {
-          console.warn('Error loading debate segments:', segmentError.message);
-        } else {
-          debateSegments = segmentData || [];
         }
       }
 
@@ -662,10 +559,10 @@ export default function MainDebateScreen() {
             speakerId: debateData.challenger_id,
             speakerName: debateData.challenger?.username || 'Challenger',
             speakerHandle: debateData.challenger?.username?.toLowerCase() || 'challenger',
-            avatar: debateData.challenger?.avatar,
+            avatar: debateData.challenger?.avatar ?? undefined,
             text: debateData.challenger_text || '',
             file: debateData.challenger_file || null,
-            createdAt: debateData.created_at,
+            createdAt: debateData.created_at || '',
             side: 'challenger',
             roundNumber: 2,
           });
@@ -717,16 +614,19 @@ export default function MainDebateScreen() {
     void Promise.resolve().then(() => loadDebateData());
   }, [postId, debateId]);
 
-  const opUser: User = (debate?.root_comment_id
+  const opUserSource = debate?.root_comment_id
     ? debate?.opponent || debateTargetComment?.speaker
-    : rootPost?.user) || {
-      id: debate?.opponent_id || rootPost?.user_id || '',
-      username: 'Original Poster',
-    };
+    : rootPost?.user;
+  const opUser: User = {
+    id: opUserSource?.id || debate?.opponent_id || rootPost?.user_id || '',
+    username: opUserSource?.username || 'Original Poster',
+    avatar: opUserSource?.avatar ?? undefined,
+  };
 
-  const challengerUser: User = debate?.challenger || {
-    id: debate?.challenger_id || '',
-    username: 'Challenger',
+  const challengerUser: User = {
+    id: debate?.challenger?.id || debate?.challenger_id || '',
+    username: debate?.challenger?.username || 'Challenger',
+    avatar: debate?.challenger?.avatar ?? undefined,
   };
 
   const lastExchange = exchanges.length > 0 ? exchanges[exchanges.length - 1] : null;
@@ -909,23 +809,17 @@ export default function MainDebateScreen() {
       const rootId = rootPost?.id || debate?.root_post_id;
       const debateDbId = debate?.id;
       const currentSide = currentUser.id === opUser.id ? 'root' : 'challenger';
+      if (!rootId || !debateDbId) throw new Error('This debate is no longer available.');
 
-      const { error: segmentError } = await supabase.from('DebateSegment').insert({
-        id: Crypto.randomUUID(),
-        debate_id: debateDbId,
-        post_id: rootId,
-        speaker_id: currentUser.id,
+      await submitSegment({
+        debateId: debateDbId,
+        postId: rootId,
+        speakerId: currentUser.id,
         text: replyText.trim(),
         file: mediaFilename,
         side: currentSide,
-        round_number: exchanges.length + 1,
+        roundNumber: exchanges.length + 1,
       });
-
-      if (segmentError) {
-        console.error('Error creating debate segment:', segmentError);
-        Alert.alert('Error', 'The response was posted, but its debate segment could not be saved.');
-        return;
-      }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setReplyText('');
@@ -1298,71 +1192,21 @@ export default function MainDebateScreen() {
       Alert.alert('Invalid action', 'You cannot debate your own comment.');
       return;
     }
-
-    const debateId = Crypto.randomUUID();
-    const { error: debateError } = await supabase.from('Debate').insert({
-      id: debateId,
-      root_post_id: null,
-      root_comment_id: targetComment.id,
-      challenger_id: currentUser.id,
-      opponent_id: targetComment.speaker_id,
-      challenger_text: newCommentText.trim(),
-      status: 'open',
-    });
-
-    if (debateError) {
-      console.error('Error creating comment-rooted debate:', debateError);
-      Alert.alert('Error', 'Could not create a debate for this comment.');
-      return;
-    }
-
-    const { data: segmentData, error: segmentError } = await supabase.from('DebateSegment').insert({
-      id: Crypto.randomUUID(),
-      debate_id: debateId,
-      post_id: rootPost.id,
-      speaker_id: currentUser.id,
-      text: newCommentText.trim(),
-      file: mediaFilename,
-      side: 'challenger',
-      round_number: 2,
-    }).select('*, speaker:User!speaker_id(id,username,avatar)').single();
-
-    if (segmentError) {
-      console.error('Error creating initial comment debate segment:', segmentError);
-      const { error: cleanupError } = await supabase.from('Debate').delete().eq('id', debateId);
-      if (cleanupError) {
-        console.error('Error cleaning up incomplete comment debate:', cleanupError);
-      }
+    try {
+      await createInlineCommentDebate({
+        postId: rootPost.id,
+        targetComment,
+        challengerId: currentUser.id,
+        text: newCommentText.trim(),
+        mediaFilename,
+      });
+      updateComment(targetComment.id, (comment) => ({ ...comment, is_debatable: true }));
+    } catch (error) {
+      console.error('Error creating comment-rooted debate:', error);
       Alert.alert('Error', 'The debate could not be started. Please try again.');
       return;
     }
 
-    const { error: commentUpdateError } = await supabase
-      .from('Comment')
-      .update({ is_debatable: true })
-      .eq('id', targetComment.id);
-    if (commentUpdateError) {
-      console.error('Error marking debate target comment as debatable:', commentUpdateError);
-    } else {
-      updateComment(targetComment.id, (comment) => ({ ...comment, is_debatable: true }));
-    }
-
-    setCommentDebates((current) => ({
-      ...current,
-      [targetComment.id]: {
-        id: debateId,
-        root_comment_id: targetComment.id,
-        challenger_id: currentUser.id,
-        opponent_id: targetComment.speaker_id,
-        challenger: {
-          id: currentUser.id,
-          username: currentUser.username,
-          avatar: currentUser.avatar,
-        },
-        opponent: targetComment.speaker,
-        segments: [segmentData as unknown as InlineDebateSegment],
-      },
-    }));
     setCollapsedCommentDebates((current) => ({ ...current, [targetComment.id]: false }));
     setNewCommentText('');
     setNewCommentPhoto('');
@@ -1379,43 +1223,12 @@ export default function MainDebateScreen() {
     if (!rootPost?.id || !currentUser?.id) {
       throw new Error('Sign in to respond to this debate.');
     }
-
-    const lastSegment = commentDebate.segments[commentDebate.segments.length - 1];
-    const nextSpeakerId = !lastSegment
-      ? commentDebate.challenger_id
-      : lastSegment.side === 'challenger'
-        ? commentDebate.opponent_id
-        : commentDebate.challenger_id;
-    if (currentUser.id !== nextSpeakerId) {
-      throw new Error('It is not your turn in this debate.');
-    }
-
-    const side = currentUser.id === commentDebate.challenger_id ? 'challenger' : 'root';
-    const { data: segment, error } = await supabase.from('DebateSegment').insert({
-      id: Crypto.randomUUID(),
-      debate_id: commentDebate.id,
-      post_id: rootPost.id,
-      speaker_id: currentUser.id,
+    await submitInlineCommentDebateResponse({
+      debate: commentDebate,
+      postId: rootPost.id,
+      currentUserId: currentUser.id,
       text,
-      file: mediaFilename,
-      side,
-      round_number: commentDebate.segments.length + 2,
-    }).select('*, speaker:User!speaker_id(id,username,avatar)').single();
-
-    if (error) {
-      console.error('Error creating comment debate response:', error);
-      throw new Error('Could not post your debate response.');
-    }
-
-    setCommentDebates((current) => {
-      const existing = current[commentDebate.root_comment_id] ?? commentDebate;
-      return {
-        ...current,
-        [commentDebate.root_comment_id]: {
-          ...existing,
-          segments: [...existing.segments, segment as unknown as InlineDebateSegment],
-        },
-      };
+      mediaFilename,
     });
   };
 
