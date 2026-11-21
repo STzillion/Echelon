@@ -1,6 +1,7 @@
 // Helper to format time difference
 
 import { Text } from '@/components/ui/text';
+import { createCompactStyleSheet } from '@/lib/compact-ui';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/providers/AuthProvider';
 import { Post, usedPosts } from '@/providers/PostsProvider';
@@ -21,7 +22,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PostVideo } from '../../video/postVideo';
-import { createCompactStyleSheet } from '@/lib/compact-ui';
 
 
 
@@ -79,6 +79,23 @@ export default function HomeScreen() {
  // const path = `${posts.user_id}/${post.file}`;
  // const imgUri = publicFileUrl(BUCKET, path);
 
+
+
+ // Function to follow a user by inserting a record into the Follow table in Supabase
+ const followUser = async (userId: string) => {
+    const { data, error } = await supabase.from('Follow').insert({
+      user_id: userId,
+      follower_id: currentUser?.id,
+    });
+  };
+
+  //matching follower id as established by in the database, and the user id of the person being followed, and removes the follow relationship from the database
+
+  const unfollowUser = async (userId: string) => {
+    const { data, error } = await supabase.from('Follow').delete().eq('user_id', userId).eq('follower_id', currentUser?.id);
+  };
+
+  
 
  const AddLike = async (postId: string) => {
   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);

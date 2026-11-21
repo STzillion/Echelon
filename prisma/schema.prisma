@@ -27,6 +27,8 @@ model User {
   likes          Like[]
   debateSegments DebateSegment[] @relation("DebateSegmentSpeaker")
   comments       Comment[]       @relation("CommentSpeaker")
+  followers      Followers[]     @relation("FollowedUser")
+  following      Followers[]     @relation("Follower")
 
   // ADD THESE
   debates_challenging Debate[] @relation("DebateChallenger")
@@ -168,4 +170,17 @@ model Comment {
   @@index([post_id])
   @@index([parent_comment_id])
   @@index([reply_to_comment_id])
+}
+
+model Followers {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()"))
+  user_id     String
+  follower_id String
+  created_at  DateTime @default(now())
+
+  user     User @relation("FollowedUser", fields: [user_id], references: [id], onDelete: Cascade)
+  follower User @relation("Follower", fields: [follower_id], references: [id], onDelete: Cascade)
+
+  @@unique([follower_id, user_id])
+  @@index([user_id])
 }

@@ -1,6 +1,6 @@
 import { useSafeRouter as useRouter } from '@/lib/fixExpoRouterBug';
 import { Tabs } from 'expo-router';
-import { Home, Plus, SearchIcon, User, Vote, } from 'lucide-react-native';
+import { Bell, Home, Plus, SearchIcon, User } from 'lucide-react-native';
 import { Platform } from 'react-native';
 
 export default function TabLayout() {
@@ -73,7 +73,7 @@ export default function TabLayout() {
         name="debates"
         options={{
             title: '',
-          tabBarIcon: ({ color, focused }) => (<Vote color={color} size={27} />
+          tabBarIcon: ({ color, focused }) => (<Bell color={color} size={27} />
           ),
         }}
       />
