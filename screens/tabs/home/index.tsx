@@ -83,16 +83,40 @@ export default function HomeScreen() {
 
  // Function to follow a user by inserting a record into the Follow table in Supabase
  const followUser = async (userId: string) => {
-    const { data, error } = await supabase.from('Follow').insert({
+    if (!currentUser?.id) {
+      console.error('Cannot follow user: sign in required.');
+      return false;
+    }
+
+    const { error } = await supabase.from('Follow').insert({
       user_id: userId,
-      follower_id: currentUser?.id,
+      follower_id: currentUser.id,
     });
+    if (error) {
+      console.error('Error following user:', error);
+      return false;
+    }
+    return true;
   };
 
   //matching follower id as established by in the database, and the user id of the person being followed, and removes the follow relationship from the database
 
   const unfollowUser = async (userId: string) => {
-    const { data, error } = await supabase.from('Follow').delete().eq('user_id', userId).eq('follower_id', currentUser?.id);
+    if (!currentUser?.id) {
+      console.error('Cannot unfollow user: sign in required.');
+      return false;
+    }
+
+    const { error } = await supabase
+      .from('Follow')
+      .delete()
+      .eq('user_id', userId)
+      .eq('follower_id', currentUser.id);
+    if (error) {
+      console.error('Error unfollowing user:', error);
+      return false;
+    }
+    return true;
   };
 
   
