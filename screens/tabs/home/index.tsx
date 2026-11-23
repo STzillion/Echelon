@@ -80,6 +80,57 @@ export default function HomeScreen() {
  // const imgUri = publicFileUrl(BUCKET, path);
 
 
+ const [followingIds, setFollowingIds] = React.useState<Set<string>>(new Set());
+
+ React.useEffect(() => {
+   let cancelled = false;
+
+   const loadFollowingIds = async () => {
+     if (!currentUser?.id) {
+       if (!cancelled) setFollowingIds(new Set());
+       return;
+     }
+
+     const { data, error } = await supabase
+       .from('Follow')
+       .select('user_id')
+       .eq('follower_id', currentUser.id);
+
+     if (error) {
+       console.error('Error loading followed users:', error);
+       return;
+     }
+
+     if (!cancelled) {
+       setFollowingIds(new Set((data ?? []).map((row) => row.user_id)));
+     }
+   };
+
+   void Promise.resolve()
+     .then(loadFollowingIds)
+     .catch((cause) => {
+       console.error('Error loading followed users:', cause);
+     });
+   return () => {
+     cancelled = true;
+   };
+ }, [currentUser?.id]);
+
+const toggleFollow = async (targetUserId: string) => {
+  const isFollowing = followingIds.has(targetUserId);
+  const succeeded = isFollowing
+    ? await unfollowUser(targetUserId)
+    : await followUser(targetUserId);
+
+  if (!succeeded) return;
+
+  setFollowingIds((current) => {
+    const next = new Set(current);
+    if (isFollowing) next.delete(targetUserId);
+    else next.add(targetUserId);
+    return next;
+  });
+};
 
  // Function to follow a user by inserting a record into the Follow table in Supabase
  const followUser = async (userId: string) => {
@@ -96,6 +147,8 @@ export default function HomeScreen() {
       console.error('Error following user:', error);
       return false;
     }
+
+    await setFollowingIds((current) => new Set(current).add(userId));
     return true;
   };
 
@@ -116,6 +169,12 @@ export default function HomeScreen() {
       console.error('Error unfollowing user:', error);
       return false;
     }
+
+    await setFollowingIds((current) => {
+      const next = new Set(current);
+      next.delete(userId);
+      return next;
+    });
     return true;
   };
 
