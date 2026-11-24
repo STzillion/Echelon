@@ -1161,21 +1161,21 @@ export default function MainDebateScreen() {
             </View>
           </View>
 
-          {replyTargetId ? (
+          {referenceComment ? (
             <Pressable
               style={styles.commentReplyContext}
-              onPress={() => void navigateToThreadComment(threadRootId, replyTargetId)}
+              onPress={() => void navigateToThreadComment(threadRootId, referenceComment.id)}
               accessibilityRole="button"
-              accessibilityLabel={`Go to comment by ${replyTarget?.speaker?.username || 'user'}`}
+              accessibilityLabel={`Go to comment by ${referenceComment.speaker?.username || 'user'}`}
             >
               <Text style={styles.commentReplyAttribution}>
-                {`Debating @${replyTarget?.speaker?.username || 'user'}`}
+                {`Debating @${referenceComment.speaker?.username || 'user'}`}
               </Text>
               <Text
                 style={[styles.commentReplyExcerpt, Platform.OS === 'web' && styles.webCommentReplyExcerpt]}
                 numberOfLines={2}
               >
-                {replyTarget?.text || (replyTarget?.file?.endsWith('.mp4') ? 'Video' : replyTarget?.file ? 'Photo' : 'View replied-to comment')}
+                {referenceComment.text || (referenceComment.file?.endsWith('.mp4') ? 'Video' : referenceComment.file ? 'Photo' : 'View comment')}
               </Text>
             </Pressable>
           ) : replyTargetId ? (
