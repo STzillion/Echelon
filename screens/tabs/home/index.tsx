@@ -396,8 +396,9 @@ const RemoveRepost = async (orig: Post) => {
     const cursor = reset ? null : feedCursor;
     let rootQuery = supabase
       .from('Post')
-      .select('*, user:User!user_id(*), repost_user:User!repost_user_id(*), likes:Like(*), comments:Comment!Comment_post_id_fkey(id)')
+      .select('*, user:User!user_id(*), repost_user:User!repost_user_id(*), likes:Like(*), comments:Comment!Comment_post_id_fkey(id,parent_comment_id)')
       .is('parent_id', null)
+      .is('comments.parent_comment_id', null)
       .order('created_at', { ascending: false })
       .range(0, 19);
 
