@@ -75,8 +75,9 @@ export default ({ user }: { user?: User }) => {
       let cancelled = false;
       supabase
         .from('Repost')
-        .select('*, post:Post!post_id(*, user:User!user_id(*), likes:Like(*), reposts:Repost(user_id,post_id), comments:Comment!Comment_post_id_fkey(id))')
+        .select('*, post:Post!post_id(*, user:User!user_id(*), likes:Like(*), reposts:Repost(user_id,post_id), comments:Comment!Comment_post_id_fkey(id,parent_comment_id))')
         .eq('user_id', user.id)
+        .is('post.comments.parent_comment_id', null)
         .not('post_id', 'is', null)
         .order('created_at', { ascending: false })
         .then(({ data, error }) => {

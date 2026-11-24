@@ -356,6 +356,10 @@ export default function MainDebateScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [rootPost, setRootPost] = useState<Post | null>(null);
+  const [feedCommentFocus, setFeedCommentFocus] = useState<{
+    commentId: string;
+    threadRootId: string;
+  } | null>(null);
   const [collapsedCommentDebates, setCollapsedCommentDebates] = useState<Record<string, boolean>>({});
   const [exchanges, setExchanges] = useState<ExchangeItem[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -409,6 +413,7 @@ export default function MainDebateScreen() {
 
   const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
   const mainScrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
+  const feedCommentFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadDebateData = async (showLoader = true) => {
     try {
@@ -936,31 +941,53 @@ export default function MainDebateScreen() {
   const pendingFeedCommentId = useRef<string | null>(null);
   const lastThreadSlideIndices = useRef<Record<string, number>>({});
   const commentsContainerOffset = useRef(0);
-  const commentThreadOffsets = useRef<Record<string, number>>({});
+  const commentThreadOffsets = useRef<Record<string, { y: number; height: number }>>({});
   const pendingVerticalThreadScroll = useRef<string | null>(null);
   const mainScrollContentHeight = useRef(0);
+  const mainScrollViewportHeight = useRef(0);
   const threadSlideWidth = threadCarouselWidth;
 
   const scrollToCommentThread = useCallback((threadRootId: string) => {
     pendingVerticalThreadScroll.current = threadRootId;
-    const threadOffset = commentThreadOffsets.current[threadRootId];
-    if (threadOffset === undefined || !mainScrollRef.current) return;
+    const threadLayout = commentThreadOffsets.current[threadRootId];
+    if (!threadLayout || !mainScrollRef.current || !mainScrollViewportHeight.current) return;
 
-    const targetY = Math.max(0, commentsContainerOffset.current + threadOffset - 24);
-    if (mainScrollContentHeight.current < targetY) return;
+    const threadTop = commentsContainerOffset.current + threadLayout.y;
+    const threadBottom = threadTop + threadLayout.height;
+    if (mainScrollContentHeight.current < threadBottom) return;
 
     requestAnimationFrame(() => {
       if (pendingVerticalThreadScroll.current !== threadRootId || !mainScrollRef.current) return;
 
-      const currentThreadOffset = commentThreadOffsets.current[threadRootId];
-      if (currentThreadOffset === undefined) return;
+      const currentThreadLayout = commentThreadOffsets.current[threadRootId];
+      if (!currentThreadLayout || !mainScrollViewportHeight.current) return;
 
-      const currentTargetY = Math.max(0, commentsContainerOffset.current + currentThreadOffset - 24);
-      if (mainScrollContentHeight.current < currentTargetY) return;
+      const currentThreadTop = commentsContainerOffset.current + currentThreadLayout.y;
+      const currentThreadBottom = currentThreadTop + currentThreadLayout.height;
+      if (mainScrollContentHeight.current < currentThreadBottom) return;
 
-      mainScrollRef.current.scrollTo({ y: currentTargetY, animated: true });
+      const centeredY = currentThreadTop
+        + currentThreadLayout.height / 2
+        - mainScrollViewportHeight.current / 2;
+      const maxScrollY = mainScrollContentHeight.current - mainScrollViewportHeight.current;
+      const targetY = Math.max(0, Math.min(centeredY, maxScrollY));
+
+      mainScrollRef.current.scrollTo({ y: targetY, animated: true });
       pendingVerticalThreadScroll.current = null;
     });
+  }, []);
+
+  const highlightFeedComment = useCallback((commentId: string, threadRootId: string) => {
+    if (feedCommentFocusTimer.current) clearTimeout(feedCommentFocusTimer.current);
+    setFeedCommentFocus({ commentId, threadRootId });
+    feedCommentFocusTimer.current = setTimeout(() => {
+      setFeedCommentFocus(null);
+      feedCommentFocusTimer.current = null;
+    }, 2000);
+  }, []);
+
+  useEffect(() => () => {
+    if (feedCommentFocusTimer.current) clearTimeout(feedCommentFocusTimer.current);
   }, []);
 
   const getThreadComments = useCallback((threadRootId: string) => {
@@ -1074,9 +1101,10 @@ export default function MainDebateScreen() {
     }
 
     pendingFeedCommentId.current = null;
-    scrollToCommentThread(threadRootId);
+    highlightFeedComment(target.id, threadRootId);
     void navigateToThreadComment(threadRootId, target.id);
-  }, [commentId, comments, navigateToThreadComment, scrollToCommentThread]);
+    scrollToCommentThread(threadRootId);
+  }, [commentId, comments, highlightFeedComment, navigateToThreadComment, scrollToCommentThread]);
 
   const renderThreadCommentCard = (
     comment: CommentItem,
@@ -1097,10 +1125,19 @@ export default function MainDebateScreen() {
     const avatarUrl = comment.speaker?.avatar
       ? `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${comment.speaker.id}/${comment.speaker.avatar}`
       : null;
+    const isFeedCommentHighlighted =
+      feedCommentFocus?.threadRootId === threadRootId && feedCommentFocus.commentId === comment.id;
 
     return (
       <View style={[styles.commentSlideWrapper, { width: threadSlideWidth }]}>
-        <View style={[styles.debateCard, styles.commentThreadCard]}>
+        <View
+          style={[
+            styles.debateCard,
+            styles.commentThreadCard,
+            feedCommentFocus && !isFeedCommentHighlighted && styles.dimmedCommentThreadCard,
+            isFeedCommentHighlighted && styles.highlightedCommentThreadCard,
+          ]}
+        >
           <View style={[styles.cardHeader, styles.threadCardHeader]}>
             <View style={styles.cardAuthorRow}>
               <View style={styles.commentAuthor}>
@@ -1545,6 +1582,11 @@ export default function MainDebateScreen() {
               onScrollBeginDrag={() => Keyboard.dismiss()}
               onScroll={handleMainScroll}
               scrollEventThrottle={250}
+              onLayout={(event) => {
+                mainScrollViewportHeight.current = event.nativeEvent.layout.height;
+                const pendingThreadRootId = pendingVerticalThreadScroll.current;
+                if (pendingThreadRootId) scrollToCommentThread(pendingThreadRootId);
+              }}
               onContentSizeChange={(_, height) => {
                 mainScrollContentHeight.current = height;
                 const pendingThreadRootId = pendingVerticalThreadScroll.current;
@@ -1883,7 +1925,10 @@ export default function MainDebateScreen() {
                         key={comment.id}
                         style={styles.commentThread}
                         onLayout={(event) => {
-                          commentThreadOffsets.current[comment.id] = event.nativeEvent.layout.y;
+                          commentThreadOffsets.current[comment.id] = {
+                            y: event.nativeEvent.layout.y,
+                            height: event.nativeEvent.layout.height,
+                          };
                           if (pendingVerticalThreadScroll.current === comment.id) {
                             scrollToCommentThread(comment.id);
                           }
@@ -2588,6 +2633,17 @@ const styles = createCompactStyleSheet(
     minHeight: 0,
     justifyContent: 'flex-start',
     padding: 9,
+  },
+  dimmedCommentThreadCard: {
+    opacity: 0.4,
+  },
+  highlightedCommentThreadCard: {
+    borderColor: '#22d3ee',
+    borderWidth: 2,
+    shadowColor: '#22d3ee',
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 4,
   },
   commentAuthor: {
     flexDirection: 'row',

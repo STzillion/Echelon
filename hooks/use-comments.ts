@@ -114,7 +114,11 @@ export const useComments = (postId?: string) => {
       const [page, countResult] = await Promise.all([
         fetchCommentPage(postId, null, reset ? null : topCursor.current),
         reset
-          ? supabase.from('Comment').select('id', { count: 'exact', head: true }).eq('post_id', postId)
+          ? supabase
+            .from('Comment')
+            .select('id', { count: 'exact', head: true })
+            .eq('post_id', postId)
+            .is('parent_comment_id', null)
           : Promise.resolve(null),
       ]);
 
