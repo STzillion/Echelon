@@ -1122,6 +1122,13 @@ export default function MainDebateScreen() {
     const replyTarget = replyTargetId
       ? comments?.find((item) => item.id === replyTargetId)
       : null;
+
+      const newreplyTargetId = onDebateReply === undefined && !referenceComment
+      ? comment.reply_to_comment_id ?? comment.parent_comment_id
+      : null;
+    const newreplyTarget = newreplyTargetId
+      ? comments?.find((item) => item.id === newreplyTargetId)
+      : null;
     const avatarUrl = comment.speaker?.avatar
       ? `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${comment.speaker.id}/${comment.speaker.avatar}`
       : null;
@@ -1145,21 +1152,21 @@ export default function MainDebateScreen() {
             </View>
           </View>
 
-          {referenceComment ? (
+          {newreplyTargetId ? (
             <Pressable
               style={styles.commentReplyContext}
-              onPress={() => void navigateToThreadComment(threadRootId, referenceComment.id)}
+              onPress={() => void navigateToThreadComment(threadRootId, newreplyTargetId)}
               accessibilityRole="button"
-              accessibilityLabel={`Go to comment by ${referenceComment.speaker?.username || 'user'}`}
+              accessibilityLabel={`Go to comment by ${newreplyTarget?.speaker?.username || 'user'}`}
             >
               <Text style={styles.commentReplyAttribution}>
-                {`Debating @${referenceComment.speaker?.username || 'user'}`}
+                {`Debating @${newreplyTarget?.speaker?.username || 'user'}`}
               </Text>
               <Text
                 style={[styles.commentReplyExcerpt, Platform.OS === 'web' && styles.webCommentReplyExcerpt]}
                 numberOfLines={2}
               >
-                {referenceComment.text || (referenceComment.file?.endsWith('.mp4') ? 'Video' : referenceComment.file ? 'Photo' : 'View comment')}
+                {newreplyTarget?.text || (newreplyTarget?.file?.endsWith('.mp4') ? 'Video' : newreplyTarget?.file ? 'Photo' : 'View comment')}
               </Text>
             </Pressable>
           ) : replyTargetId ? (
@@ -1170,7 +1177,7 @@ export default function MainDebateScreen() {
               accessibilityLabel={`Go to comment by ${replyTarget?.speaker?.username || 'user'}`}
             >
               <Text style={styles.commentReplyAttribution}>
-                Replying to @{replyTarget?.speaker?.username || 'user'}
+                 Replying to @{replyTarget?.speaker?.username || 'user'}
               </Text>
               <Text
                 style={[styles.commentReplyExcerpt, Platform.OS === 'web' && styles.webCommentReplyExcerpt]}
