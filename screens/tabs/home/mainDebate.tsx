@@ -341,7 +341,11 @@ function CommentThreadScroller({
 }
 
 export default function MainDebateScreen() {
-  const { postId, debateId } = useLocalSearchParams<{ postId?: string; debateId?: string }>();
+  const { postId, debateId, commentId } = useLocalSearchParams<{
+    postId?: string;
+    debateId?: string;
+    commentId?: string;
+  }>();
   const router = useRouter();
   const { user } = useAuth();
   const currentUser = user as any;
@@ -928,6 +932,8 @@ export default function MainDebateScreen() {
   const [threadCarouselWidth, setThreadCarouselWidth] = useState(screenWidth);
   const newCommentInputRef = useRef<ComponentRef<typeof TextInput>>(null);
   const pendingThreadTargets = useRef<Record<string, string>>({});
+  const feedCommentLoadStarted = useRef<string | null>(null);
+  const pendingFeedCommentId = useRef<string | null>(null);
   const lastThreadSlideIndices = useRef<Record<string, number>>({});
   const threadSlideWidth = threadCarouselWidth;
 
@@ -985,7 +991,7 @@ export default function MainDebateScreen() {
     Haptics.selectionAsync();
   };
 
-  const navigateToThreadComment = async (threadRootId: string, targetCommentId: string) => {
+  const navigateToThreadComment = useCallback(async (threadRootId: string, targetCommentId: string) => {
     const threadComments = getThreadComments(threadRootId);
     const targetIndex = threadComments.findIndex((comment) => comment.id === targetCommentId);
     if (targetIndex >= 0) {
@@ -1002,7 +1008,48 @@ export default function MainDebateScreen() {
       console.error('Error loading replied-to comment:', error);
       Alert.alert('Error', 'Could not load the comment being replied to.');
     }
-  };
+  }, [getThreadComments, loadCommentPath, requestThreadScroll]);
+
+  useEffect(() => {
+    if (!commentId || loading || !rootPost?.id) return;
+
+    const requestKey = `${rootPost.id}:${commentId}`;
+    if (feedCommentLoadStarted.current === requestKey) return;
+
+    feedCommentLoadStarted.current = requestKey;
+    pendingFeedCommentId.current = commentId;
+    const targetIsLoaded = (comments ?? []).some((comment) => comment.id === commentId);
+    if (targetIsLoaded) return;
+
+    void loadCommentPath(commentId).catch((error) => {
+      console.error('Error loading linked feed comment:', error);
+      pendingFeedCommentId.current = null;
+      Alert.alert('Error', 'Could not load the comment from this repost.');
+    });
+  }, [commentId, comments, loadCommentPath, loading, rootPost?.id]);
+
+  useEffect(() => {
+    const targetCommentId = pendingFeedCommentId.current;
+    if (!targetCommentId) return;
+
+    const target = (comments ?? []).find((comment) => comment.id === targetCommentId);
+    if (!target) return;
+
+    const commentsById = new Map((comments ?? []).map((comment) => [comment.id, comment]));
+    let threadRootId = target.id;
+    let parentId = target.parent_comment_id ?? null;
+    const visited = new Set([target.id]);
+
+    while (parentId && !visited.has(parentId)) {
+      visited.add(parentId);
+      const parent = commentsById.get(parentId);
+      threadRootId = parent?.id ?? parentId;
+      parentId = parent?.parent_comment_id ?? null;
+    }
+
+    pendingFeedCommentId.current = null;
+    void navigateToThreadComment(threadRootId, target.id);
+  }, [commentId, comments, navigateToThreadComment]);
 
   const renderThreadCommentCard = (
     comment: CommentItem,

@@ -635,6 +635,13 @@ const RemoveRepost = async (orig: Post) => {
             ? `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${commentSpeaker.id}/${commentSpeaker.avatar}`
             : null;
           const commentChain = displayPost.source_comment_id ? getCommentChain(displayPost.source_comment_id) : [];
+          const openPost = () => router.push({
+            pathname: '/mainDebate',
+            params: {
+              postId: originalPostId,
+              ...(displayPost.source_comment_id ? { commentId: displayPost.source_comment_id } : {}),
+            },
+          });
           return (
           <React.Fragment key={post.id}>
             <View style={styles.postCard}>
@@ -681,6 +688,11 @@ const RemoveRepost = async (orig: Post) => {
                 </View>
                 </Pressable>
 
+                <Pressable
+                  onPress={openPost}
+                  accessibilityRole="button"
+                  accessibilityLabel={isCommentRepost ? 'Open reposted comment thread' : 'Open post comments'}
+                >
                 {isCommentRepost ? (
                   <View style={[styles.commentCard, Platform.OS === 'web' && styles.webCommentCard]}>
                     <View style={styles.commentCardAuthor}>
@@ -849,6 +861,7 @@ const RemoveRepost = async (orig: Post) => {
                       </View>
                   ))}
 
+                </Pressable>
 
                   
 

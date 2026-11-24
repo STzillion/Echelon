@@ -231,8 +231,8 @@ export const useComments = (postId?: string) => {
     if (incrementCount) setCommentCount((count) => count + 1);
   }, []);
 
-  const loadCommentPath = useCallback(async (commentId: string) => {
-    if (!postId) return;
+  const loadCommentPath = useCallback(async (commentId: string): Promise<CommentItem[]> => {
+    if (!postId) return [];
 
     const path: CommentItem[] = [];
     const visited = new Set<string>();
@@ -256,7 +256,9 @@ export const useComments = (postId?: string) => {
     }
 
     if (nextCommentId) throw new Error('A cycle was found in the comment reply chain.');
-    path.reverse().forEach((comment) => addComment(comment, false));
+    const orderedPath = path.reverse();
+    orderedPath.forEach((comment) => addComment(comment, false));
+    return orderedPath;
   }, [addComment, postId]);
 
   const data = useMemo(
