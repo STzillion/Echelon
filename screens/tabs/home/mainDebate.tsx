@@ -938,6 +938,7 @@ export default function MainDebateScreen() {
   const commentsContainerOffset = useRef(0);
   const commentThreadOffsets = useRef<Record<string, number>>({});
   const pendingVerticalThreadScroll = useRef<string | null>(null);
+  const mainScrollContentHeight = useRef(0);
   const threadSlideWidth = threadCarouselWidth;
 
   const scrollToCommentThread = useCallback((threadRootId: string) => {
@@ -945,11 +946,21 @@ export default function MainDebateScreen() {
     const threadOffset = commentThreadOffsets.current[threadRootId];
     if (threadOffset === undefined || !mainScrollRef.current) return;
 
-    mainScrollRef.current.scrollTo({
-      y: Math.max(0, commentsContainerOffset.current + threadOffset - 24),
-      animated: true,
+    const targetY = Math.max(0, commentsContainerOffset.current + threadOffset - 24);
+    if (mainScrollContentHeight.current < targetY) return;
+
+    requestAnimationFrame(() => {
+      if (pendingVerticalThreadScroll.current !== threadRootId || !mainScrollRef.current) return;
+
+      const currentThreadOffset = commentThreadOffsets.current[threadRootId];
+      if (currentThreadOffset === undefined) return;
+
+      const currentTargetY = Math.max(0, commentsContainerOffset.current + currentThreadOffset - 24);
+      if (mainScrollContentHeight.current < currentTargetY) return;
+
+      mainScrollRef.current.scrollTo({ y: currentTargetY, animated: true });
+      pendingVerticalThreadScroll.current = null;
     });
-    pendingVerticalThreadScroll.current = null;
   }, []);
 
   const getThreadComments = useCallback((threadRootId: string) => {
@@ -1534,6 +1545,11 @@ export default function MainDebateScreen() {
               onScrollBeginDrag={() => Keyboard.dismiss()}
               onScroll={handleMainScroll}
               scrollEventThrottle={250}
+              onContentSizeChange={(_, height) => {
+                mainScrollContentHeight.current = height;
+                const pendingThreadRootId = pendingVerticalThreadScroll.current;
+                if (pendingThreadRootId) scrollToCommentThread(pendingThreadRootId);
+              }}
               refreshControl={(
                 <RefreshControl
                   refreshing={refreshing}
