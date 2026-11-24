@@ -5,6 +5,7 @@ import {
   useCommentDebates,
   useDebate,
 } from '@/hooks/use-debate';
+import { createCompactStyleSheet } from '@/lib/compact-ui';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/providers/AuthProvider';
 import { Post, User } from '@/providers/PostsProvider';
@@ -52,7 +53,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { createCompactStyleSheet } from '@/lib/compact-ui';
 
 const MAIN_DEBATE_SIZE_SCALE = 1.05;
 const MAIN_DEBATE_UNSCALED_INDICATORS = new Set([
@@ -1125,19 +1125,10 @@ export default function MainDebateScreen() {
     const avatarUrl = comment.speaker?.avatar
       ? `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/files/${comment.speaker.id}/${comment.speaker.avatar}`
       : null;
-    const isFeedCommentHighlighted =
-      feedCommentFocus?.threadRootId === threadRootId && feedCommentFocus.commentId === comment.id;
 
     return (
       <View style={[styles.commentSlideWrapper, { width: threadSlideWidth }]}>
-        <View
-          style={[
-            styles.debateCard,
-            styles.commentThreadCard,
-            feedCommentFocus && !isFeedCommentHighlighted && styles.dimmedCommentThreadCard,
-            isFeedCommentHighlighted && styles.highlightedCommentThreadCard,
-          ]}
-        >
+        <View style={[styles.debateCard, styles.commentThreadCard]}>
           <View style={[styles.cardHeader, styles.threadCardHeader]}>
             <View style={styles.cardAuthorRow}>
               <View style={styles.commentAuthor}>
@@ -1582,11 +1573,6 @@ export default function MainDebateScreen() {
               onScrollBeginDrag={() => Keyboard.dismiss()}
               onScroll={handleMainScroll}
               scrollEventThrottle={250}
-              onLayout={(event) => {
-                mainScrollViewportHeight.current = event.nativeEvent.layout.height;
-                const pendingThreadRootId = pendingVerticalThreadScroll.current;
-                if (pendingThreadRootId) scrollToCommentThread(pendingThreadRootId);
-              }}
               onContentSizeChange={(_, height) => {
                 mainScrollContentHeight.current = height;
                 const pendingThreadRootId = pendingVerticalThreadScroll.current;
@@ -1925,10 +1911,7 @@ export default function MainDebateScreen() {
                         key={comment.id}
                         style={styles.commentThread}
                         onLayout={(event) => {
-                          commentThreadOffsets.current[comment.id] = {
-                            y: event.nativeEvent.layout.y,
-                            height: event.nativeEvent.layout.height,
-                          };
+                          commentThreadOffsets.current[comment.id] = event.nativeEvent.layout.y;
                           if (pendingVerticalThreadScroll.current === comment.id) {
                             scrollToCommentThread(comment.id);
                           }
@@ -2633,17 +2616,6 @@ const styles = createCompactStyleSheet(
     minHeight: 0,
     justifyContent: 'flex-start',
     padding: 9,
-  },
-  dimmedCommentThreadCard: {
-    opacity: 0.4,
-  },
-  highlightedCommentThreadCard: {
-    borderColor: '#22d3ee',
-    borderWidth: 2,
-    shadowColor: '#22d3ee',
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 4,
   },
   commentAuthor: {
     flexDirection: 'row',
