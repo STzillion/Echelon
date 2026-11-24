@@ -935,7 +935,22 @@ export default function MainDebateScreen() {
   const feedCommentLoadStarted = useRef<string | null>(null);
   const pendingFeedCommentId = useRef<string | null>(null);
   const lastThreadSlideIndices = useRef<Record<string, number>>({});
+  const commentsContainerOffset = useRef(0);
+  const commentThreadOffsets = useRef<Record<string, number>>({});
+  const pendingVerticalThreadScroll = useRef<string | null>(null);
   const threadSlideWidth = threadCarouselWidth;
+
+  const scrollToCommentThread = useCallback((threadRootId: string) => {
+    pendingVerticalThreadScroll.current = threadRootId;
+    const threadOffset = commentThreadOffsets.current[threadRootId];
+    if (threadOffset === undefined || !mainScrollRef.current) return;
+
+    mainScrollRef.current.scrollTo({
+      y: Math.max(0, commentsContainerOffset.current + threadOffset - 24),
+      animated: true,
+    });
+    pendingVerticalThreadScroll.current = null;
+  }, []);
 
   const getThreadComments = useCallback((threadRootId: string) => {
     const threadIds = new Set([threadRootId]);
@@ -1048,8 +1063,9 @@ export default function MainDebateScreen() {
     }
 
     pendingFeedCommentId.current = null;
+    scrollToCommentThread(threadRootId);
     void navigateToThreadComment(threadRootId, target.id);
-  }, [commentId, comments, navigateToThreadComment]);
+  }, [commentId, comments, navigateToThreadComment, scrollToCommentThread]);
 
   const renderThreadCommentCard = (
     comment: CommentItem,
@@ -1825,7 +1841,14 @@ export default function MainDebateScreen() {
               <View style={styles.fullWidthDivider} />
 
               {/* Comments Section */}
-              <View style={styles.commentsContainer}>
+              <View
+                style={styles.commentsContainer}
+                onLayout={(event) => {
+                  commentsContainerOffset.current = event.nativeEvent.layout.y;
+                  const pendingThreadRootId = pendingVerticalThreadScroll.current;
+                  if (pendingThreadRootId) scrollToCommentThread(pendingThreadRootId);
+                }}
+              >
                 {!(comments ?? []).some((comment) => !comment.parent_comment_id) ? (
                   <Text style={styles.noCommentsText}>No comments yet.</Text>
                 ) : (
@@ -1840,7 +1863,16 @@ export default function MainDebateScreen() {
                     const webWindowEnd = Math.min(threadComments.length, activeThreadIndex + 2);
 
                     return (
-                      <View key={comment.id} style={styles.commentThread}>
+                      <View
+                        key={comment.id}
+                        style={styles.commentThread}
+                        onLayout={(event) => {
+                          commentThreadOffsets.current[comment.id] = event.nativeEvent.layout.y;
+                          if (pendingVerticalThreadScroll.current === comment.id) {
+                            scrollToCommentThread(comment.id);
+                          }
+                        }}
+                      >
                         <View
                           style={styles.commentCarouselViewport}
                           onLayout={(event) => {
